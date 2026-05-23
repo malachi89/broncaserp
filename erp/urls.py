@@ -9,6 +9,12 @@ urlpatterns = [
     path("pos/", views.pos, name="pos"),
     path("inventario/", views.inventory, name="inventory"),
     path("inventario/ajustar/", views.adjust_inventory_view, name="adjust_inventory"),
+    path("clientes/", views.clients, name="clients"),
+    path("ventas/", views.sales, name="sales"),
+    path("ventas/nueva/", views.new_sale, name="new_sale"),
+    path("ventas/<int:sale_id>/", views.sale_detail, name="sale_detail"),
+    path("ventas/<int:sale_id>/nota/", views.sale_note, name="sale_note"),
+    path("ventas/<int:sale_id>/factura/", views.sale_invoice, name="sale_invoice"),
     path("creditos/", views.credits, name="credits"),
     path("creditos/abono/", views.credit_payment, name="credit_payment"),
     path("caja/", views.cash, name="cash"),
@@ -19,4 +25,3 @@ urlpatterns = [
     path("proveedor/", views.provider_dashboard, name="provider_dashboard"),
     path("proveedor/clientes/", views.provider_businesses, name="provider_businesses"),
 ]
-

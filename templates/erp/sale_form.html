@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block page_title %}Nueva Venta{% endblock %}
+
+{% block content %}
+<section class="sale-layout">
+  <div class="panel pos-products">
+    <div class="panel-header">
+      <div>
+        <h2>Productos</h2>
+        <p class="helper-text">Agrega artículos para esta venta especializada.</p>
+      </div>
+      <a class="ghost-button" href="{% url 'sales' %}">Volver</a>
+    </div>
+    <input id="sale-product-search" class="search-input" type="search" placeholder="Busca por nombre, código o SKU" autocomplete="off">
+    <div class="product-grid" id="sale-product-grid">
+      {% for product in products %}
+        <button
+          type="button"
+          class="product-tile"
+          data-product-id="{{ product.id }}"
+          data-name="{{ product.name }}"
+          data-barcode="{{ product.barcode }}"
+          data-sku="{{ product.sku }}"
+          data-price="{{ product.sale_price }}"
+          data-stock="{{ product.stock_quantity }}"
+        >
+          <strong>{{ product.name }}</strong>
+          <span>${{ product.sale_price }}</span>
+          <small>{{ product.stock_quantity }} {{ product.unit }}</small>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <form method="post" class="panel sale-cart" id="sale-form">
+    {% csrf_token %}
+    <input type="hidden" name="cart_json" id="sale-cart-json">
+    <div class="panel-header">
+      <h2>Venta</h2>
+      <button type="button" class="ghost-button" id="sale-clear-cart">Limpiar</button>
+    </div>
+
+    {{ form.non_field_errors }}
+    <div id="sale-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
+
+    <label>
+      Cliente
+      {{ form.customer_id.errors }}
+      <input id="customer-search" class="search-input" type="search" placeholder="Busca cliente por nombre, contacto, teléfono o RFC" autocomplete="off">
+      <select name="customer_id" id="customer-id" required>
+        <option value="">Selecciona cliente</option>
+        {% for customer in customers %}
+          <option
+            value="{{ customer.id }}"
+            data-address="{{ customer.address }}"
+            data-search="{{ customer.name }} {{ customer.contact_name }} {{ customer.phone }} {{ customer.email }} {{ customer.tax_id }}"
+            {% if form.data.customer_id == customer.id|stringformat:"s" %}selected{% endif %}
+          >
+            {{ customer.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Dirección de envío
+      {{ form.shipping_address.errors }}
+      <textarea name="shipping_address" id="shipping-address" rows="3">{{ form.data.shipping_address|default:form.fields.shipping_address.initial }}</textarea>
+    </label>
+
+    <div id="sale-cart-lines" class="sale-cart-lines"></div>
+
+    <div class="sale-summary">
+      <div><span>Subtotal</span><strong id="sale-subtotal">$0.00</strong></div>
+      <label>
+        Descuento general
+        {{ form.discount_total.errors }}
+        <input type="number" name="discount_total" id="sale-discount-total" min="0" step="0.01" value="{{ form.data.discount_total|default:'0.00' }}">
+      </label>
+      <div><span>Total</span><strong id="sale-total">$0.00</strong></div>
+    </div>
+
+    <label>
+      Método de pago
+      {{ form.payment_method.errors }}
+      {{ form.payment_method }}
+    </label>
+
+    <label>
+      Nota para cliente
+      {{ form.customer_note.errors }}
+      {{ form.customer_note }}
+    </label>
+
+    <label>
+      Nota interna
+      {{ form.internal_note.errors }}
+      {{ form.internal_note }}
+    </label>
+
+    <button class="primary-button" type="submit">Registrar venta</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/sales.js' %}"></script>
+{% endblock %}

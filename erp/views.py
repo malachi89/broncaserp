@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -10,9 +11,10 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import CustomerForm, ProductForm, ProviderBusinessForm
+from .forms import CustomerForm, MembershipAccessForm, ProductForm, ProviderBusinessForm, SpecializedSaleForm, TenantUserForm
 from .models import (
     Business,
+    BusinessMembership,
     CashSession,
     CreditAccount,
     Customer,
@@ -28,6 +30,7 @@ from .services import (
     cash_session_totals,
     close_cash_session,
     create_pos_sale,
+    create_specialized_sale,
     current_cash_session,
     open_cash_session,
     record_credit_payment,
@@ -50,6 +53,44 @@ def tenant_required(view_func):
     return wrapped
 
 
+def module_access_required(permission_attr, denied_message="No tienes acceso a este módulo."):
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(request, *args, **kwargs):
+            membership = getattr(request, "membership", None)
+            if not membership or not getattr(membership, permission_attr, False):
+                messages.error(request, denied_message)
+                return redirect("dashboard")
+            return view_func(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def build_membership_rows(request, memberships, can_manage_users, bound_form=None):
+    rows = []
+    for membership in memberships:
+        form = None
+        if can_manage_users and not membership.is_owner:
+            if bound_form is not None and bound_form.instance.pk == membership.pk:
+                form = bound_form
+            else:
+                form = MembershipAccessForm(
+                    instance=membership,
+                    prefix=f"member-{membership.id}",
+                    acting_membership=request.membership,
+                )
+        rows.append(
+            {
+                "membership": membership,
+                "form": form,
+                "editable": form is not None,
+            }
+        )
+    return rows
+
+
 @login_required
 def no_business(request):
     return render(request, "erp/no_business.html")
@@ -59,18 +100,52 @@ def no_business(request):
 def dashboard(request):
     business = request.business
     today = timezone.localdate()
-    today_sales = Sale.objects.filter(business=business, created_at__date=today).aggregate(total=Sum("total"), count=Count("id"))
-    low_stock_count = Product.objects.filter(business=business, is_active=True, stock_quantity__lte=models_min_stock()).count()
-    credit_balance = CreditAccount.objects.filter(business=business).aggregate(total=Sum("balance"))["total"] or Decimal("0")
-    recent_sales = Sale.objects.filter(business=business).select_related("customer", "created_by")[:8]
+    suggested_start = today.replace(day=1)
+    panel = request.GET.get("panel", "").strip()
+    overview_requested = panel == "overview"
+    start_date_value = request.GET.get("start_date") or str(suggested_start)
+    end_date_value = request.GET.get("end_date") or str(today)
+
+    sales_total = None
+    low_stock_count = None
+    credit_balance = None
+    sales = None
+
+    if overview_requested:
+        start_date = parse_date(start_date_value)
+        end_date = parse_date(end_date_value)
+        if not start_date:
+            messages.error(request, "La fecha inicial no es válida.")
+        elif not end_date:
+            messages.error(request, "La fecha final no es válida.")
+        elif start_date > end_date:
+            messages.error(request, "La fecha inicial no puede ser mayor que la final.")
+        else:
+            sales_queryset = Sale.objects.filter(
+                business=business,
+                created_at__date__gte=start_date,
+                created_at__date__lte=end_date,
+            )
+            sales_total = sales_queryset.aggregate(total=Sum("total"), count=Count("id"))
+            low_stock_count = Product.objects.filter(
+                business=business,
+                is_active=True,
+                stock_quantity__lte=models_min_stock(),
+            ).count()
+            credit_balance = CreditAccount.objects.filter(business=business).aggregate(total=Sum("balance"))["total"] or Decimal("0")
+            sales = sales_queryset.select_related("customer", "created_by").order_by("-created_at")[:100]
+
     return render(
         request,
         "erp/dashboard.html",
         {
-            "today_sales": today_sales,
+            "overview_requested": overview_requested,
+            "start_date": start_date_value,
+            "end_date": end_date_value,
+            "sales_total": sales_total,
             "low_stock_count": low_stock_count,
             "credit_balance": credit_balance,
-            "recent_sales": recent_sales,
+            "sales": sales,
         },
     )
 
@@ -81,7 +156,17 @@ def models_min_stock():
     return F("min_stock")
 
 
+def specialized_sales_queryset(business):
+    return (
+        Sale.objects.filter(business=business, origin=Sale.Origin.SPECIALIZED)
+        .select_related("customer", "created_by")
+        .prefetch_related("items", "payments")
+        .order_by("-created_at")
+    )
+
+
 @tenant_required
+@module_access_required("can_access_pos_effective")
 def pos(request):
     business = request.business
     if request.method == "POST":
@@ -113,6 +198,7 @@ def pos(request):
 
 
 @tenant_required
+@module_access_required("can_access_inventory_effective")
 def inventory(request):
     business = request.business
     if request.method == "POST":
@@ -142,6 +228,139 @@ def inventory(request):
 
 
 @tenant_required
+@module_access_required("can_access_sales_effective")
+def clients(request):
+    business = request.business
+    editing_customer = None
+
+    def resolve_editing_customer():
+        customer_id = (request.POST.get("customer_id") or request.GET.get("edit") or "").strip()
+        if not customer_id:
+            return None
+        return get_object_or_404(Customer, pk=customer_id, business=business)
+
+    if request.method == "POST":
+        editing_customer = resolve_editing_customer()
+        form = CustomerForm(request.POST, business=business, instance=editing_customer)
+        if form.is_valid():
+            customer = form.save()
+            messages.success(request, f"Cliente {customer.name} guardado.")
+            return redirect("clients")
+    else:
+        editing_customer = resolve_editing_customer()
+        form = CustomerForm(business=business, instance=editing_customer)
+
+    customers = Customer.objects.filter(business=business).select_related("credit_account").order_by("name")
+    return render(
+        request,
+        "erp/clients.html",
+        {
+            "form": form,
+            "customers": customers,
+            "editing_customer": editing_customer,
+        },
+    )
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+def sales(request):
+    business = request.business
+    sales_list = specialized_sales_queryset(business)[:80]
+    return render(request, "erp/sales.html", {"sales": sales_list})
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+def new_sale(request):
+    business = request.business
+    products = Product.objects.filter(business=business, is_active=True).order_by("name")[:500]
+    customers = Customer.objects.filter(business=business, is_active=True).order_by("name")
+
+    if request.method == "POST":
+        form = SpecializedSaleForm(request.POST, business=business)
+        if form.is_valid():
+            try:
+                cart = json.loads(request.POST.get("cart_json", "[]"))
+                sale = create_specialized_sale(
+                    business=business,
+                    user=request.user,
+                    customer_id=form.cleaned_data["customer_id"].id,
+                    items=cart,
+                    payment_method=form.cleaned_data["payment_method"],
+                    discount_total=form.cleaned_data["discount_total"],
+                    shipping_address=form.cleaned_data["shipping_address"],
+                    customer_note=form.cleaned_data["customer_note"],
+                    internal_note=form.cleaned_data["internal_note"],
+                )
+                messages.success(request, f"Venta {sale.folio} registrada por ${sale.total}.")
+                return redirect("sale_detail", sale_id=sale.id)
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    else:
+        form = SpecializedSaleForm(business=business)
+
+    return render(
+        request,
+        "erp/sale_form.html",
+        {
+            "form": form,
+            "products": products,
+            "customers": customers,
+        },
+    )
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+def sale_detail(request, sale_id):
+    sale = get_object_or_404(
+        specialized_sales_queryset(request.business),
+        pk=sale_id,
+    )
+    return render(request, "erp/sale_detail.html", {"sale": sale})
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+def sale_note(request, sale_id):
+    sale = get_object_or_404(
+        specialized_sales_queryset(request.business),
+        pk=sale_id,
+    )
+    return render(
+        request,
+        "erp/sale_document.html",
+        {
+            "sale": sale,
+            "document_title": "Nota de venta",
+            "document_code": "NV",
+            "document_legend": "Documento interno para control comercial.",
+        },
+    )
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+def sale_invoice(request, sale_id):
+    sale = get_object_or_404(
+        specialized_sales_queryset(request.business),
+        pk=sale_id,
+    )
+    return render(
+        request,
+        "erp/sale_document.html",
+        {
+            "sale": sale,
+            "document_title": "Factura no timbrada",
+            "document_code": "FNT",
+            "document_legend": "Documento interno sin timbrado fiscal. No sustituye un CFDI.",
+        },
+    )
+
+
+@tenant_required
+@module_access_required("can_access_inventory_effective")
 @require_POST
 def adjust_inventory_view(request):
     product = get_object_or_404(Product, pk=request.POST.get("product_id"), business=request.business)
@@ -160,6 +379,7 @@ def adjust_inventory_view(request):
 
 
 @tenant_required
+@module_access_required("can_access_credits_effective")
 def credits(request):
     business = request.business
     if request.method == "POST":
@@ -176,6 +396,7 @@ def credits(request):
 
 
 @tenant_required
+@module_access_required("can_access_credits_effective")
 @require_POST
 def credit_payment(request):
     account = get_object_or_404(CreditAccount, pk=request.POST.get("account_id"), business=request.business)
@@ -194,6 +415,7 @@ def credit_payment(request):
 
 
 @tenant_required
+@module_access_required("can_access_cash_effective")
 def cash(request):
     session = current_cash_session(request.business, request.user)
     totals = cash_session_totals(session) if session else {}
@@ -202,6 +424,7 @@ def cash(request):
 
 
 @tenant_required
+@module_access_required("can_access_cash_effective")
 @require_POST
 def open_cash(request):
     try:
@@ -213,28 +436,87 @@ def open_cash(request):
 
 
 @tenant_required
+@module_access_required("can_access_cash_effective")
 @require_POST
 def close_cash(request):
     session = current_cash_session(request.business, request.user)
     if not session:
         messages.error(request, "No hay caja abierta.")
         return redirect("cash")
-    close_cash_session(session, request.user, request.POST.get("closing_amount", "0"))
-    messages.success(request, "Caja cerrada.")
+    try:
+        close_cash_session(session, request.user, request.POST.get("closing_amount", "0"))
+        messages.success(request, "Caja cerrada.")
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
     return redirect("cash")
 
 
 @tenant_required
+@module_access_required("can_access_reports_effective")
 def reports(request):
-    business = request.business
-    sales_total = Sale.objects.filter(business=business).aggregate(total=Sum("total"), count=Count("id"))
-    payments = SalePayment.objects.filter(business=business).values("method").annotate(total=Sum("amount")).order_by("method")
-    return render(request, "erp/reports.html", {"sales_total": sales_total, "payments": payments})
+    messages.info(request, "Reportes ahora está integrado al dashboard.")
+    return redirect("dashboard")
 
 
 @tenant_required
 def settings_view(request):
-    return render(request, "erp/settings.html")
+    can_manage_users = request.membership.can_manage_users
+    memberships = request.business.memberships.select_related("user").order_by("-is_owner", "-is_admin", "user__username")
+    create_user_form = TenantUserForm(business=request.business, prefix="create")
+    membership_form = None
+    action = ""
+
+    if request.method == "POST":
+        if not can_manage_users:
+            messages.error(request, "No tienes permiso para administrar usuarios.")
+            return redirect("settings")
+
+        action = request.POST.get("action", "")
+        if action == "create_user":
+            create_user_form = TenantUserForm(request.POST, business=request.business, prefix="create")
+            if create_user_form.is_valid():
+                membership = create_user_form.save()
+                messages.success(request, f"Usuario {membership.user.username} agregado al negocio.")
+                return redirect("settings")
+        elif action == "update_membership":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user"),
+                pk=request.POST.get("membership_id"),
+                business=request.business,
+            )
+            if membership.is_owner:
+                messages.error(request, "El usuario propietario no se edita desde esta pantalla.")
+                return redirect("settings")
+
+            membership_form = MembershipAccessForm(
+                request.POST,
+                instance=membership,
+                prefix=f"member-{membership.id}",
+                acting_membership=request.membership,
+            )
+            if membership_form.is_valid():
+                updated_membership = membership_form.save()
+                messages.success(request, f"Accesos actualizados para {updated_membership.user.username}.")
+                return redirect("settings")
+        else:
+            messages.error(request, "Acción no válida.")
+            return redirect("settings")
+
+    membership_rows = build_membership_rows(
+        request,
+        memberships,
+        can_manage_users,
+        bound_form=membership_form if action == "update_membership" else None,
+    )
+    return render(
+        request,
+        "erp/settings.html",
+        {
+            "can_manage_users": can_manage_users,
+            "create_user_form": create_user_form,
+            "membership_rows": membership_rows,
+        },
+    )
 
 
 @user_passes_test(is_provider)

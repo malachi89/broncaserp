@@ -5,7 +5,7 @@
 {% block content %}
 <section class="two-column">
   <div class="panel">
-    <div class="panel-header"><h2>Sesion actual</h2></div>
+    <div class="panel-header"><h2>Sesión actual</h2></div>
     {% if cash_session %}
       <p class="big-number">Abierta desde {{ cash_session.opened_at|date:"H:i" }}</p>
       <div class="summary-list">
@@ -54,4 +54,3 @@
   </div>
 </section>
 {% endblock %}
-

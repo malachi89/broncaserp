@@ -1,0 +1,98 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ document_title }} {{ sale.folio }}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="document-body">
+  <main class="document-sheet">
+    <header class="document-header">
+      <div>
+        <p class="eyebrow">{{ document_code }}</p>
+        <h1>{{ document_title }}</h1>
+        <p class="helper-text">{{ document_legend }}</p>
+      </div>
+      <div class="document-meta">
+        <strong>{{ sale.folio }}</strong>
+        <span>{{ sale.created_at|date:"Y-m-d H:i" }}</span>
+        <span>{{ sale.get_status_display }}</span>
+      </div>
+    </header>
+
+    <section class="document-grid">
+      <div>
+        <h2>Cliente</h2>
+        <p><strong>{{ sale.customer.name }}</strong></p>
+        <p>{{ sale.customer.contact_name|default:"" }}</p>
+        <p>{{ sale.customer.tax_id|default:"" }}</p>
+      </div>
+      <div>
+        <h2>Envío</h2>
+        <p>{{ sale.shipping_address|default:"Sin dirección de envío" }}</p>
+      </div>
+    </section>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio</th>
+            <th>Descuento</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in sale.items.all %}
+            <tr>
+              <td>{{ item.product_name }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>${{ item.unit_price }}</td>
+              <td>${{ item.discount_amount }}</td>
+              <td>${{ item.line_total }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="4">Subtotal</th>
+            <th>${{ sale.subtotal }}</th>
+          </tr>
+          <tr>
+            <th colspan="4">Descuento por líneas</th>
+            <th>${{ sale.line_discount_total }}</th>
+          </tr>
+          <tr>
+            <th colspan="4">Descuento general</th>
+            <th>${{ sale.discount_total }}</th>
+          </tr>
+          <tr>
+            <th colspan="4">Total</th>
+            <th>${{ sale.total }}</th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <section class="document-notes">
+      <div>
+        <h2>Nota para cliente</h2>
+        <p>{{ sale.customer_note|default:"Sin nota" }}</p>
+      </div>
+      <div>
+        <h2>Nota interna</h2>
+        <p>{{ sale.internal_note|default:"Sin nota" }}</p>
+      </div>
+    </section>
+
+    <div class="document-actions">
+      <button class="small-button" type="button" onclick="window.print()">Imprimir</button>
+      <a class="ghost-button" href="{% url 'sale_detail' sale.id %}">Volver a venta</a>
+    </div>
+  </main>
+</body>
+</html>

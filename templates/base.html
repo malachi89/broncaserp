@@ -6,14 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
   <title>{% block title %}El Broncas ERP{% endblock %}</title>
-  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/icon-32.png' %}?v=20260523-logo">
+  <link rel="icon" type="image/png" sizes="192x192" href="{% static 'icons/icon-192.png' %}?v=20260523-logo">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'icons/icon-180.png' %}?v=20260523-logo">
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}?v=20260523-logo">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body>
   <div class="shell">
     <aside class="sidebar">
       <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
-        <span class="brand-mark">B</span>
+        <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
         <span>
           <strong>El Broncas</strong>
           <small>ERP</small>
@@ -25,17 +28,18 @@
           <nav class="nav">
             <a href="{% url 'provider_dashboard' %}">Proveedor</a>
             <a href="{% url 'provider_businesses' %}">Clientes</a>
-            <a href="/admin/">Django Admin</a>
+            <a href="/admin/">Administración</a>
           </nav>
         {% else %}
           <nav class="nav">
             <a href="{% url 'dashboard' %}">Dashboard</a>
-            <a href="{% url 'pos' %}">POS</a>
-            <a href="{% url 'inventory' %}">Inventario</a>
-            <a href="{% url 'credits' %}">Creditos</a>
-            <a href="{% url 'cash' %}">Caja</a>
-            <a href="{% url 'reports' %}">Reportes</a>
-            <a href="{% url 'settings' %}">Config</a>
+            {% if current_membership.can_access_pos_effective %}<a href="{% url 'pos' %}">Punto de Venta</a>{% endif %}
+            {% if current_membership.can_access_inventory_effective %}<a href="{% url 'inventory' %}">Inventario</a>{% endif %}
+            {% if current_membership.can_access_sales_effective %}<a href="{% url 'sales' %}">Ventas</a>{% endif %}
+            {% if current_membership.can_access_sales_effective %}<a href="{% url 'clients' %}">Clientes</a>{% endif %}
+            {% if current_membership.can_access_credits_effective %}<a href="{% url 'credits' %}">Créditos</a>{% endif %}
+            {% if current_membership.can_access_cash_effective %}<a href="{% url 'cash' %}">Caja</a>{% endif %}
+            <a href="{% url 'settings' %}">Configuración</a>
           </nav>
         {% endif %}
       {% endif %}

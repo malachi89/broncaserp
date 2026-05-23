@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block page_title %}Punto de venta{% endblock %}
+{% block page_title %}Punto de Venta{% endblock %}
 
 {% block content %}
 {% if not current_business.can_operate %}
-  <div class="message error">La cuenta esta vencida o suspendida. No se pueden registrar ventas.</div>
+  <div class="message error">La cuenta está vencida o suspendida. No se pueden registrar ventas.</div>
 {% endif %}
 
 <section class="pos-layout">
@@ -18,7 +18,7 @@
         <a class="status-pill warn" href="{% url 'cash' %}">Abrir caja</a>
       {% endif %}
     </div>
-    <input id="barcode-input" class="search-input" type="search" placeholder="Escanea codigo, SKU o busca producto" autocomplete="off" autofocus>
+    <input id="barcode-input" class="search-input" type="search" placeholder="Escanea código, SKU o busca producto" autocomplete="off" autofocus>
     <div class="product-grid" id="product-grid">
       {% for product in products %}
         <button
@@ -46,18 +46,19 @@
       <h2>Ticket</h2>
       <button type="button" class="ghost-button" id="clear-cart">Limpiar</button>
     </div>
+    <div id="pos-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
     <div id="cart-lines" class="cart-lines"></div>
     <div class="cart-total">
       <span>Total</span>
       <strong id="cart-total">$0.00</strong>
     </div>
     <label>
-      Metodo de pago
+      Método de pago
       <select name="payment_method" id="payment-method">
         <option value="cash">Efectivo</option>
         <option value="card">Tarjeta</option>
         <option value="transfer">Transferencia</option>
-        <option value="credit">Credito</option>
+        <option value="credit">Crédito</option>
       </select>
     </label>
     <label id="customer-field" class="is-hidden">
@@ -77,4 +78,3 @@
 {% block scripts %}
 <script src="{% static 'js/pos.js' %}"></script>
 {% endblock %}
-

@@ -12,14 +12,13 @@
       {{ form.username }}
     </label>
     <label>
-      Password
+      Contraseña
       {{ form.password }}
     </label>
     {% if form.errors %}
-      <p class="error-text">Usuario o password incorrecto.</p>
+      <p class="error-text">Usuario o contraseña incorrectos.</p>
     {% endif %}
     <button class="primary-button" type="submit">Entrar</button>
   </form>
 </section>
 {% endblock %}
-

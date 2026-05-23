@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block page_title %}Dashboard proveedor{% endblock %}
+{% block page_title %}Dashboard del Proveedor{% endblock %}
 
 {% block content %}
 <section class="metric-grid">
@@ -27,11 +27,10 @@
             <td>{{ business.service_expires_at|default:"-" }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="4">Aun no hay clientes.</td></tr>
+          <tr><td colspan="4">Aún no hay clientes.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 {% endblock %}
-

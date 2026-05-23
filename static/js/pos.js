@@ -8,6 +8,7 @@
   const clearCart = document.getElementById("clear-cart");
   const paymentMethod = document.getElementById("payment-method");
   const customerField = document.getElementById("customer-field");
+  const posFeedback = document.getElementById("pos-feedback");
   const cart = new Map();
 
   function normalize(value) {
@@ -32,12 +33,37 @@
     }).format(value);
   }
 
-  function addProduct(product) {
-    const current = cart.get(product.id) || { product, quantity: 0 };
-    if (current.quantity + 1 > product.stock) {
-      window.alert("Stock insuficiente para " + product.name);
+  function showFeedback(message, level) {
+    if (!posFeedback) return;
+    posFeedback.textContent = message;
+    posFeedback.classList.remove("is-hidden", "error", "warn");
+    posFeedback.classList.add(level || "warn");
+  }
+
+  function clearFeedback() {
+    if (!posFeedback) return;
+    posFeedback.textContent = "";
+    posFeedback.classList.add("is-hidden");
+    posFeedback.classList.remove("error", "warn");
+  }
+
+  function syncStockFeedback() {
+    const oversoldLine = Array.from(cart.values()).find(({ product, quantity }) => quantity > product.stock);
+    if (oversoldLine) {
+      const { product } = oversoldLine;
+      showFeedback(
+        product.stock <= 0
+          ? product.name + " ya no tiene existencias. La venta se registrara de todos modos."
+          : product.name + " solo tiene " + product.stock + " en existencia. La venta se registrara de todos modos.",
+        "warn"
+      );
       return;
     }
+    clearFeedback();
+  }
+
+  function addProduct(product) {
+    const current = cart.get(product.id) || { product, quantity: 0 };
     current.quantity += 1;
     cart.set(product.id, current);
     renderCart();
@@ -73,9 +99,6 @@
         const nextQuantity = Number(input.value);
         if (!nextQuantity || nextQuantity <= 0) {
           cart.delete(product.id);
-        } else if (nextQuantity > product.stock) {
-          window.alert("Stock insuficiente para " + product.name);
-          input.value = quantity;
         } else {
           cart.set(product.id, { product, quantity: nextQuantity });
         }
@@ -94,6 +117,7 @@
         quantity,
       }))
     );
+    syncStockFeedback();
   }
 
   productButtons.forEach((button) => {
@@ -130,6 +154,7 @@
 
   clearCart.addEventListener("click", () => {
     cart.clear();
+    clearFeedback();
     renderCart();
     searchInput.focus();
   });
@@ -137,10 +162,9 @@
   posForm.addEventListener("submit", (event) => {
     if (cart.size === 0) {
       event.preventDefault();
-      window.alert("Agrega productos al ticket.");
+      showFeedback("Agrega productos al ticket.", "error");
     }
   });
 
   renderCart();
 })();
-
