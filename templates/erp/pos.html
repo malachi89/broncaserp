@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block page_title %}Punto de venta{% endblock %}
+
+{% block content %}
+{% if not current_business.can_operate %}
+  <div class="message error">La cuenta esta vencida o suspendida. No se pueden registrar ventas.</div>
+{% endif %}
+
+<section class="pos-layout">
+  <div class="panel pos-products">
+    <div class="panel-header">
+      <h2>Productos</h2>
+      {% if cash_session %}
+        <span class="status-pill good">Caja abierta</span>
+      {% else %}
+        <a class="status-pill warn" href="{% url 'cash' %}">Abrir caja</a>
+      {% endif %}
+    </div>
+    <input id="barcode-input" class="search-input" type="search" placeholder="Escanea codigo, SKU o busca producto" autocomplete="off" autofocus>
+    <div class="product-grid" id="product-grid">
+      {% for product in products %}
+        <button
+          type="button"
+          class="product-tile"
+          data-product-id="{{ product.id }}"
+          data-name="{{ product.name }}"
+          data-barcode="{{ product.barcode }}"
+          data-sku="{{ product.sku }}"
+          data-price="{{ product.sale_price }}"
+          data-stock="{{ product.stock_quantity }}"
+        >
+          <strong>{{ product.name }}</strong>
+          <span>${{ product.sale_price }}</span>
+          <small>{{ product.stock_quantity }} {{ product.unit }}</small>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <form method="post" class="panel pos-cart" id="pos-form">
+    {% csrf_token %}
+    <input type="hidden" name="cart_json" id="cart-json">
+    <div class="panel-header">
+      <h2>Ticket</h2>
+      <button type="button" class="ghost-button" id="clear-cart">Limpiar</button>
+    </div>
+    <div id="cart-lines" class="cart-lines"></div>
+    <div class="cart-total">
+      <span>Total</span>
+      <strong id="cart-total">$0.00</strong>
+    </div>
+    <label>
+      Metodo de pago
+      <select name="payment_method" id="payment-method">
+        <option value="cash">Efectivo</option>
+        <option value="card">Tarjeta</option>
+        <option value="transfer">Transferencia</option>
+        <option value="credit">Credito</option>
+      </select>
+    </label>
+    <label id="customer-field" class="is-hidden">
+      Cliente
+      <select name="customer_id">
+        <option value="">Selecciona cliente</option>
+        {% for customer in customers %}
+          <option value="{{ customer.id }}">{{ customer.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="primary-button" type="submit" {% if not current_business.can_operate %}disabled{% endif %}>Cobrar</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/pos.js' %}"></script>
+{% endblock %}
+

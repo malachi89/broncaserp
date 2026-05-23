@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block page_title %}Dashboard proveedor{% endblock %}
+
+{% block content %}
+<section class="metric-grid">
+  <article class="metric-card"><span>Clientes</span><strong>{{ totals.businesses }}</strong><small>Total</small></article>
+  <article class="metric-card"><span>Activos</span><strong>{{ totals.active }}</strong><small>Operando</small></article>
+  <article class="metric-card"><span>Vencidos</span><strong>{{ totals.past_due }}</strong><small>Revisar cobranza</small></article>
+  <article class="metric-card"><span>Pagos mes</span><strong>${{ totals.monthly_payments }}</strong><small>Manual</small></article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Clientes recientes</h2>
+    <a class="text-link" href="{% url 'provider_businesses' %}">Administrar clientes</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Negocio</th><th>Plan</th><th>Estado</th><th>Vence</th></tr></thead>
+      <tbody>
+        {% for business in recent_businesses %}
+          <tr>
+            <td>{{ business.name }}</td>
+            <td>{{ business.plan.name|default:"Sin plan" }}</td>
+            <td>{{ business.get_status_display }}</td>
+            <td>{{ business.service_expires_at|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">Aun no hay clientes.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+

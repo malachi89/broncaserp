@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block page_title %}Clientes{% endblock %}
+
+{% block content %}
+<section class="two-column">
+  <form method="post" class="panel compact-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create">
+    <div class="panel-header"><h2>Alta de cliente</h2></div>
+    {% for field in form %}
+      <p>
+        {{ field.label_tag }}
+        {% if field.name == "business_name" %}
+          <input type="{{ field.field.widget.input_type }}" name="{{ field.name }}" id="{{ field.id_for_label }}" value="{{ field.value|default_if_none:'' }}" maxlength="{{ field.field.max_length }}" required data-slug-source>
+        {% elif field.name == "slug" %}
+          <input type="text" name="{{ field.name }}" id="{{ field.id_for_label }}" value="{{ field.value|default_if_none:'' }}" maxlength="{{ field.field.max_length }}" required data-slug-target>
+        {% else %}
+          {{ field }}
+        {% endif %}
+        {% if field.errors %}
+          <span class="error-text">{{ field.errors|striptags }}</span>
+        {% endif %}
+      </p>
+    {% endfor %}
+    <button class="primary-button" type="submit">Crear cuenta</button>
+  </form>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Negocios</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Negocio</th>
+            <th>Usuarios</th>
+            <th>Cuenta</th>
+            <th>Pago</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for business in businesses %}
+            <tr>
+              <td>
+                <strong>{{ business.name }}</strong><br>
+                <small>{{ business.slug }}</small>
+              </td>
+              <td>{{ business.user_count }}</td>
+              <td>
+                <form method="post" class="inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="update">
+                  <input type="hidden" name="business_id" value="{{ business.id }}">
+                  <select name="plan_id" title="Plan">
+                    <option value="">Sin plan</option>
+                    {% for plan in plans %}
+                      <option value="{{ plan.id }}" {% if business.plan_id == plan.id %}selected{% endif %}>{{ plan.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <select name="status" title="Estado">
+                    {% for value, label in status_choices %}
+                      <option value="{{ value }}" {% if business.status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                  <input type="date" name="service_expires_at" value="{{ business.service_expires_at|date:'Y-m-d' }}">
+                  <input type="hidden" name="notes" value="{{ business.notes }}">
+                  <button class="small-button" type="submit">Guardar</button>
+                </form>
+              </td>
+              <td>
+                <form method="post" class="inline-form provider-payment-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="payment">
+                  <input type="hidden" name="business_id" value="{{ business.id }}">
+                  <input name="amount" type="number" step="0.01" min="0.01" placeholder="Pago">
+                  <input name="method" placeholder="Metodo">
+                  <button class="small-button" type="submit">Pago</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4">Aun no hay negocios.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const source = document.querySelector("[data-slug-source]");
+    const target = document.querySelector("[data-slug-target]");
+    if (!source || !target) return;
+
+    function slugify(value) {
+      return value
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/ñ/g, "n")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    }
+
+    source.addEventListener("input", function () {
+      target.value = slugify(source.value);
+    });
+  })();
+</script>
+{% endblock %}

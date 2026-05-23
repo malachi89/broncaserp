@@ -1,0 +1,76 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>{% block title %}El Broncas ERP{% endblock %}</title>
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
+        <span class="brand-mark">B</span>
+        <span>
+          <strong>El Broncas</strong>
+          <small>ERP</small>
+        </span>
+      </a>
+
+      {% if request.user.is_authenticated %}
+        {% if request.user.is_superuser %}
+          <nav class="nav">
+            <a href="{% url 'provider_dashboard' %}">Proveedor</a>
+            <a href="{% url 'provider_businesses' %}">Clientes</a>
+            <a href="/admin/">Django Admin</a>
+          </nav>
+        {% else %}
+          <nav class="nav">
+            <a href="{% url 'dashboard' %}">Dashboard</a>
+            <a href="{% url 'pos' %}">POS</a>
+            <a href="{% url 'inventory' %}">Inventario</a>
+            <a href="{% url 'credits' %}">Creditos</a>
+            <a href="{% url 'cash' %}">Caja</a>
+            <a href="{% url 'reports' %}">Reportes</a>
+            <a href="{% url 'settings' %}">Config</a>
+          </nav>
+        {% endif %}
+      {% endif %}
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Proveedor{% else %}Acceso{% endif %}</p>
+          <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
+        </div>
+        {% if request.user.is_authenticated %}
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button class="icon-button" title="Salir" aria-label="Salir">Salir</button>
+          </form>
+        {% endif %}
+      </header>
+
+      {% if messages %}
+        <div class="messages">
+          {% for message in messages %}
+            <div class="message {{ message.tags }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("{% static 'service-worker.js' %}").catch(function () {});
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="El Broncas ERP">
+  <rect width="128" height="128" rx="22" fill="#101828"/>
+  <rect x="24" y="24" width="80" height="80" rx="16" fill="#d97706"/>
+  <path d="M44 38h25c14 0 23 7 23 18 0 7-4 12-10 15 8 3 13 9 13 18 0 13-10 21-26 21H44V38Zm18 29h7c5 0 8-3 8-8s-3-7-8-7h-7v15Zm0 29h9c6 0 9-3 9-8s-3-8-9-8h-9v16Z" fill="#fff"/>
+</svg>
+

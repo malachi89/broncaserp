@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block page_title %}Creditos{% endblock %}
+
+{% block content %}
+<section class="two-column">
+  <form method="post" class="panel compact-form">
+    {% csrf_token %}
+    <div class="panel-header"><h2>Nuevo cliente</h2></div>
+    {{ form.as_p }}
+    <button class="primary-button" type="submit">Guardar cliente</button>
+  </form>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Cuentas por cobrar</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Limite</th>
+            <th>Saldo</th>
+            <th>Disponible</th>
+            <th>Abono</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for account in accounts %}
+            <tr>
+              <td>{{ account.customer.name }}</td>
+              <td>${{ account.credit_limit }}</td>
+              <td>${{ account.balance }}</td>
+              <td>${{ account.available_credit }}</td>
+              <td>
+                <form method="post" action="{% url 'credit_payment' %}" class="inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="account_id" value="{{ account.id }}">
+                  <input name="amount" type="number" step="0.01" min="0.01" placeholder="Monto">
+                  <select name="method">
+                    <option value="cash">Efectivo</option>
+                    <option value="transfer">Transferencia</option>
+                  </select>
+                  <button class="small-button" type="submit">Registrar</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5">Sin clientes con credito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block page_title %}Configuracion{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-header"><h2>Negocio</h2></div>
+  <dl class="detail-grid">
+    <dt>Nombre</dt><dd>{{ current_business.name }}</dd>
+    <dt>Moneda</dt><dd>{{ current_business.currency }}</dd>
+    <dt>Estado</dt><dd>{{ current_business.get_status_display }}</dd>
+    <dt>Vence</dt><dd>{{ current_business.service_expires_at|default:"Sin fecha" }}</dd>
+  </dl>
+</section>
+{% endblock %}
+

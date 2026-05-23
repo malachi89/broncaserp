@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block page_title %}Caja{% endblock %}
+
+{% block content %}
+<section class="two-column">
+  <div class="panel">
+    <div class="panel-header"><h2>Sesion actual</h2></div>
+    {% if cash_session %}
+      <p class="big-number">Abierta desde {{ cash_session.opened_at|date:"H:i" }}</p>
+      <div class="summary-list">
+        {% for method, total in totals.items %}
+          <div><span>{{ method }}</span><strong>${{ total }}</strong></div>
+        {% empty %}
+          <div><span>Ventas</span><strong>$0.00</strong></div>
+        {% endfor %}
+      </div>
+      <form method="post" action="{% url 'close_cash' %}" class="inline-form">
+        {% csrf_token %}
+        <input name="closing_amount" type="number" step="0.01" placeholder="Monto contado">
+        <button class="primary-button" type="submit">Cerrar caja</button>
+      </form>
+    {% else %}
+      <form method="post" action="{% url 'open_cash' %}" class="compact-form">
+        {% csrf_token %}
+        <label>
+          Fondo inicial
+          <input name="opening_amount" type="number" step="0.01" value="0">
+        </label>
+        <button class="primary-button" type="submit">Abrir caja</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Historial</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Estado</th><th>Apertura</th><th>Cierre</th><th>Inicial</th></tr></thead>
+        <tbody>
+          {% for session in recent_sessions %}
+            <tr>
+              <td>{{ session.get_status_display }}</td>
+              <td>{{ session.opened_at|date:"d/m H:i" }}</td>
+              <td>{{ session.closed_at|date:"d/m H:i"|default:"-" }}</td>
+              <td>${{ session.opening_amount }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4">Sin sesiones.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
