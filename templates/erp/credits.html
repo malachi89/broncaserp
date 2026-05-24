@@ -13,9 +13,18 @@
   </form>
 
   <div class="panel">
-    <div class="panel-header"><h2>Cuentas por cobrar</h2></div>
+    <div class="panel-header">
+      <h2>Cuentas por cobrar</h2>
+      <form method="get" class="inline-search credits-search">
+        <input name="q" value="{{ query }}" class="search-input credits-search-input" placeholder="Buscar cliente, contacto, RFC o teléfono">
+        <button class="small-button" type="submit">Buscar</button>
+      </form>
+    </div>
+    {% if not query %}
+      <p class="helper-text">Escribe una búsqueda para ver clientes con crédito.</p>
+    {% endif %}
     <div class="table-wrap">
-      <table>
+      <table class="credits-table">
         <thead>
           <tr>
             <th>Cliente</th>
@@ -33,7 +42,7 @@
               <td>${{ account.balance }}</td>
               <td>${{ account.available_credit }}</td>
               <td>
-                <form method="post" action="{% url 'credit_payment' %}" class="inline-form">
+                <form method="post" action="{% url 'credit_payment' %}" class="inline-form credit-payment-form">
                   {% csrf_token %}
                   <input type="hidden" name="account_id" value="{{ account.id }}">
                   <input name="amount" type="number" step="0.01" min="0.01" placeholder="Monto">
@@ -46,7 +55,9 @@
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="5">Sin clientes con crédito.</td></tr>
+            {% if query %}
+              <tr><td colspan="5">Sin clientes con crédito.</td></tr>
+            {% endif %}
           {% endfor %}
         </tbody>
       </table>

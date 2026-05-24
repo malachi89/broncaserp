@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -183,7 +184,7 @@ def pos(request):
                 messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}. Se aplicó precio manual en una o más líneas.")
             else:
                 messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}.")
-            return redirect("pos")
+            return redirect(f"{reverse('pos')}?sale_saved=1")
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
 
@@ -204,6 +205,7 @@ def pos(request):
             "customers": customers,
             "cash_session": current_cash_session(business, request.user),
             "query": query,
+            "sale_saved": request.GET.get("sale_saved") == "1",
         },
     )
 
@@ -345,8 +347,8 @@ def new_sale(request):
                     payment_method=form.cleaned_data["payment_method"],
                     discount_total=form.cleaned_data["discount_total"],
                     shipping_address=form.cleaned_data["shipping_address"],
-                    customer_note=form.cleaned_data["customer_note"],
-                    internal_note=form.cleaned_data["internal_note"],
+                    customer_note=form.cleaned_data["notes"],
+                    internal_note="",
                 )
                 messages.success(request, f"Venta {sale.folio} registrada por ${sale.total}.")
                 return redirect("sale_detail", sale_id=sale.id)
@@ -390,7 +392,7 @@ def sale_note(request, sale_id):
         {
             "sale": sale,
             "document_title": "Nota de venta",
-            "document_code": "NV",
+            "document_code": "",
             "document_legend": "Documento interno para control comercial.",
         },
     )
@@ -428,8 +430,22 @@ def credits(request):
     else:
         form = CustomerForm(business=business)
 
-    accounts = CreditAccount.objects.filter(business=business).select_related("customer").order_by("customer__name")
-    return render(request, "erp/credits.html", {"form": form, "accounts": accounts})
+    query = request.GET.get("q", "").strip()
+    accounts = CreditAccount.objects.none()
+    if query:
+        accounts = (
+            CreditAccount.objects.filter(business=business)
+            .select_related("customer")
+            .filter(
+                Q(customer__name__icontains=query)
+                | Q(customer__contact_name__icontains=query)
+                | Q(customer__phone__icontains=query)
+                | Q(customer__email__icontains=query)
+                | Q(customer__tax_id__icontains=query)
+            )
+            .order_by("customer__name")[:300]
+        )
+    return render(request, "erp/credits.html", {"form": form, "accounts": accounts, "query": query})
 
 
 @tenant_required

@@ -289,8 +289,7 @@ class SpecializedSaleForm(forms.Form):
     payment_method = forms.ChoiceField(label="Método de pago", choices=SalePayment.Method.choices)
     shipping_address = forms.CharField(label="Dirección de envío", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     discount_total = forms.DecimalField(label="Descuento general", required=False, min_value=0, initial=0, decimal_places=2, max_digits=12)
-    customer_note = forms.CharField(label="Nota para cliente", required=False, widget=forms.Textarea(attrs={"rows": 3}))
-    internal_note = forms.CharField(label="Nota interna", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    notes = forms.CharField(label="Notas", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
     def __init__(self, *args, business=None, **kwargs):
         self.business = business

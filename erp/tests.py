@@ -508,6 +508,9 @@ class ErpDomainTests(TestCase):
         self.assertContains(response, 'type="hidden" name="customer_id"', html=False)
         self.assertContains(response, "Cantidad")
         self.assertContains(response, "Descuento")
+        self.assertContains(response, "Notas")
+        self.assertNotContains(response, "Nota para cliente")
+        self.assertNotContains(response, "Nota interna")
 
     def test_specialized_sale_documents_render(self):
         customer = Customer.objects.create(business=self.business, name="Cafeteria Luna")
@@ -526,6 +529,8 @@ class ErpDomainTests(TestCase):
 
         self.assertContains(note_response, "Nota de venta")
         self.assertContains(note_response, sale.folio)
+        self.assertContains(note_response, "Notas")
+        self.assertNotContains(note_response, "NV")
 
     def test_sales_page_shows_status_and_payment_method_columns(self):
         customer = Customer.objects.create(business=self.business, name="Cliente Metodo")
@@ -572,6 +577,27 @@ class ErpDomainTests(TestCase):
 
         self.assertContains(response, "Escribe una búsqueda para ver clientes.")
         self.assertNotContains(response, "Cliente Busqueda")
+
+    def test_credits_page_does_not_load_list_without_query(self):
+        Customer.objects.create(business=self.business, name="Credito Sin Busqueda")
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("credits"))
+
+        self.assertContains(response, "Escribe una búsqueda para ver clientes con crédito.")
+        self.assertNotContains(response, "Credito Sin Busqueda")
+
+    def test_credits_page_filters_accounts_by_query(self):
+        Customer.objects.create(business=self.business, name="Credito Uno")
+        Customer.objects.create(business=self.business, name="Credito Dos")
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("credits"), {"q": "Uno"})
+
+        self.assertContains(response, "Credito Uno")
+        self.assertNotContains(response, "Credito Dos")
 
     def test_owner_membership_cannot_be_edited_from_settings(self):
         client = Client()

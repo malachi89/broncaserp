@@ -11,7 +11,9 @@
   <main class="document-sheet">
     <header class="document-header">
       <div>
-        <p class="eyebrow">{{ document_code }}</p>
+        {% if document_code %}
+          <p class="eyebrow">{{ document_code }}</p>
+        {% endif %}
         <h1>{{ document_title }}</h1>
         <p class="helper-text">{{ document_legend }}</p>
       </div>
@@ -92,12 +94,8 @@
 
     <section class="document-notes">
       <div>
-        <h2>Nota para cliente</h2>
-        <p>{{ sale.customer_note|default:"Sin nota" }}</p>
-      </div>
-      <div>
-        <h2>Nota interna</h2>
-        <p>{{ sale.internal_note|default:"Sin nota" }}</p>
+        <h2>Notas</h2>
+        <p>{{ sale.customer_note|default:sale.internal_note|default:"Sin nota" }}</p>
       </div>
     </section>
 

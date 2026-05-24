@@ -9,7 +9,18 @@
   const paymentMethod = document.getElementById("payment-method");
   const customerField = document.getElementById("customer-field");
   const posFeedback = document.getElementById("pos-feedback");
+  const cashTenderSection = document.getElementById("cash-tender-section");
+  const tenderedAmountInput = document.getElementById("tendered-amount");
+  const resetTenderedButton = document.getElementById("reset-tendered");
+  const billButtons = Array.from(document.querySelectorAll(".bill-button"));
+  const tenderedTotal = document.getElementById("tendered-total");
+  const changeLabel = document.getElementById("change-label");
+  const changeTotal = document.getElementById("change-total");
+  const isSaleSaved = posForm && posForm.dataset.saleSaved === "1";
+  const POS_DRAFT_KEY = "broncaserp:pos:draft:v1";
   const cart = new Map();
+  let cartGrandTotal = 0;
+  let isSubmittingSale = false;
 
   function asMoneyCents(value) {
     return Math.round(Number(value || 0) * 100);
@@ -35,6 +46,90 @@
       style: "currency",
       currency: "MXN",
     }).format(value);
+  }
+
+  function parseAmount(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) return 0;
+    return amount;
+  }
+
+  function readTenderedAmount() {
+    return parseAmount(tenderedAmountInput ? tenderedAmountInput.value : 0);
+  }
+
+  function setTenderedAmount(amount) {
+    if (!tenderedAmountInput) return;
+    tenderedAmountInput.value = parseAmount(amount).toFixed(2);
+  }
+
+  function clearPersistedDraft() {
+    try {
+      window.sessionStorage.removeItem(POS_DRAFT_KEY);
+    } catch (_error) {
+      // Ignora errores de storage del navegador.
+    }
+  }
+
+  function saveDraft() {
+    try {
+      const payload = {
+        cart: Array.from(cart.values()).map((lineState) => ({
+          product: lineState.product,
+          quantity: Number(lineState.quantity),
+          unitPrice: Number(lineState.unitPrice),
+          priceOverrideReason: lineState.priceOverrideReason || "",
+        })),
+        paymentMethod: paymentMethod ? paymentMethod.value : "cash",
+        tenderedAmount: readTenderedAmount(),
+      };
+      window.sessionStorage.setItem(POS_DRAFT_KEY, JSON.stringify(payload));
+    } catch (_error) {
+      // Si storage está bloqueado, POS sigue funcionando sin persistencia.
+    }
+  }
+
+  function restoreDraft() {
+    try {
+      const raw = window.sessionStorage.getItem(POS_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      const draftLines = Array.isArray(draft.cart) ? draft.cart : [];
+      draftLines.forEach((line) => {
+        const product = line.product || {};
+        const productId = Number(product.id);
+        const quantity = Number(line.quantity);
+        const unitPrice = Number(line.unitPrice);
+        if (!Number.isFinite(productId) || productId <= 0) return;
+        if (!Number.isFinite(quantity) || quantity <= 0) return;
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) return;
+        cart.set(productId, {
+          product: {
+            id: productId,
+            name: String(product.name || "Producto"),
+            barcode: String(product.barcode || ""),
+            sku: String(product.sku || ""),
+            price: Number(product.price || unitPrice),
+            stock: Number(product.stock || 0),
+          },
+          quantity,
+          unitPrice,
+          priceOverrideReason: String(line.priceOverrideReason || ""),
+        });
+      });
+
+      if (paymentMethod && draft.paymentMethod) {
+        const existsOption = Array.from(paymentMethod.options).some((option) => option.value === draft.paymentMethod);
+        if (existsOption) {
+          paymentMethod.value = draft.paymentMethod;
+        }
+      }
+      if (tenderedAmountInput && draft.tenderedAmount !== undefined) {
+        setTenderedAmount(draft.tenderedAmount);
+      }
+    } catch (_error) {
+      clearPersistedDraft();
+    }
   }
 
   function showFeedback(message, level) {
@@ -64,6 +159,31 @@
       return;
     }
     clearFeedback();
+  }
+
+  function updateCashTenderUI() {
+    if (!cashTenderSection || !paymentMethod || !tenderedTotal || !changeTotal || !changeLabel) return;
+
+    const isCash = paymentMethod.value === "cash";
+    cashTenderSection.classList.toggle("is-hidden", !isCash);
+    if (!isCash) return;
+
+    const tendered = readTenderedAmount();
+    const balance = tendered - cartGrandTotal;
+
+    tenderedTotal.textContent = money(tendered);
+    if (balance >= 0) {
+      changeLabel.textContent = "Cambio";
+      changeTotal.textContent = money(balance);
+      changeTotal.classList.add("positive");
+      changeTotal.classList.remove("negative");
+      return;
+    }
+
+    changeLabel.textContent = "Faltan";
+    changeTotal.textContent = money(Math.abs(balance));
+    changeTotal.classList.add("negative");
+    changeTotal.classList.remove("positive");
   }
 
   function addProduct(product) {
@@ -138,7 +258,8 @@
       });
       cartLines.appendChild(line);
     });
-    cartTotal.textContent = money(total);
+    cartGrandTotal = Number(total.toFixed(2));
+    cartTotal.textContent = money(cartGrandTotal);
     cartJson.value = JSON.stringify(
       Array.from(cart.values()).map((lineState) => ({
         product_id: lineState.product.id,
@@ -148,6 +269,10 @@
       }))
     );
     syncStockFeedback();
+    updateCashTenderUI();
+    if (!isSubmittingSale) {
+      saveDraft();
+    }
   }
 
   function ensureOverrideReasons() {
@@ -202,12 +327,42 @@
 
   paymentMethod.addEventListener("change", () => {
     customerField.classList.toggle("is-hidden", paymentMethod.value !== "credit");
+    updateCashTenderUI();
+  });
+
+  if (tenderedAmountInput) {
+    tenderedAmountInput.addEventListener("input", () => {
+      updateCashTenderUI();
+    });
+  }
+
+  if (resetTenderedButton) {
+    resetTenderedButton.addEventListener("click", () => {
+      setTenderedAmount(0);
+      updateCashTenderUI();
+      if (tenderedAmountInput) {
+        tenderedAmountInput.focus();
+      }
+    });
+  }
+
+  billButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const billAmount = parseAmount(button.dataset.billAmount);
+      setTenderedAmount(readTenderedAmount() + billAmount);
+      updateCashTenderUI();
+      if (tenderedAmountInput) {
+        tenderedAmountInput.focus();
+      }
+    });
   });
 
   clearCart.addEventListener("click", () => {
     cart.clear();
+    setTenderedAmount(0);
     clearFeedback();
     renderCart();
+    clearPersistedDraft();
     searchInput.focus();
   });
 
@@ -223,8 +378,34 @@
       showFeedback(`Captura el motivo del ajuste de precio para ${reasonValidation.productName}.`, "error");
       return;
     }
+    if (paymentMethod.value === "cash") {
+      const tendered = readTenderedAmount();
+      if (tendered <= 0) {
+        event.preventDefault();
+        showFeedback("Captura el monto recibido en efectivo.", "error");
+        return;
+      }
+      if (tendered + 0.0001 < cartGrandTotal) {
+        event.preventDefault();
+        showFeedback(`Monto insuficiente. Faltan ${money(cartGrandTotal - tendered)} para completar la venta.`, "error");
+        return;
+      }
+    }
+    isSubmittingSale = true;
+    clearPersistedDraft();
     renderCart();
   });
 
+  if (isSaleSaved) {
+    cart.clear();
+    setTenderedAmount(0);
+    clearPersistedDraft();
+  } else {
+    restoreDraft();
+  }
+
   renderCart();
+  customerField.classList.toggle("is-hidden", paymentMethod.value !== "credit");
+  setTenderedAmount(readTenderedAmount());
+  updateCashTenderUI();
 })();

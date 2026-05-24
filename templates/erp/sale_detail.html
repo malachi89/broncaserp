@@ -19,8 +19,7 @@
   <div class="detail-grid sale-detail-grid">
     <dt>Cliente</dt><dd>{{ sale.customer.name }}</dd>
     <dt>Dirección de envío</dt><dd>{{ sale.shipping_address|default:"Sin dirección de envío" }}</dd>
-    <dt>Nota cliente</dt><dd>{{ sale.customer_note|default:"Sin nota" }}</dd>
-    <dt>Nota interna</dt><dd>{{ sale.internal_note|default:"Sin nota" }}</dd>
+    <dt>Notas</dt><dd>{{ sale.customer_note|default:sale.internal_note|default:"Sin nota" }}</dd>
   </div>
 
   {% if sale.has_manual_price_override %}
