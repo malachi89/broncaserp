@@ -117,6 +117,8 @@ def _normalize_cart_items(items):
             clean_item["unit_price"] = item.get("unit_price")
         if "discount_amount" in item:
             clean_item["discount_amount"] = item.get("discount_amount")
+        if "price_override_reason" in item:
+            clean_item["price_override_reason"] = str(item.get("price_override_reason") or "").strip()
         clean_items.append(clean_item)
     if not clean_items:
         raise ValidationError("Agrega al menos un producto a la venta.")
@@ -149,7 +151,7 @@ def _create_sale_with_items(
     internal_note="",
     origin=Sale.Origin.POS,
 ):
-    line_discount_total = sum((line_discount for _product, _quantity, _unit_price, line_discount, _line_total in prepared_items), Decimal("0.00"))
+    line_discount_total = sum((line["line_discount"] for line in prepared_items), Decimal("0.00"))
     total = (subtotal - line_discount_total - discount_total).quantize(Decimal("0.01"))
     if total < 0:
         raise ValidationError("El descuento no puede ser mayor al subtotal de la venta.")
@@ -174,7 +176,12 @@ def _create_sale_with_items(
         created_by=user,
     )
 
-    for product, quantity, unit_price, line_discount, line_total in prepared_items:
+    for line in prepared_items:
+        product = line["product"]
+        quantity = line["quantity"]
+        unit_price = line["unit_price"]
+        line_discount = line["line_discount"]
+        line_total = line["line_total"]
         SaleItem.objects.create(
             sale=sale,
             business=business,
@@ -182,6 +189,9 @@ def _create_sale_with_items(
             product_name=product.name,
             quantity=quantity,
             unit_price=unit_price,
+            original_unit_price=line["original_unit_price"],
+            has_manual_price_override=line["has_manual_price_override"],
+            price_override_reason=line["price_override_reason"],
             discount_amount=line_discount,
             line_total=line_total,
         )
@@ -226,13 +236,32 @@ def _create_sale_with_items(
             created_by=user,
         )
 
+    price_override_lines = [
+        {
+            "product_id": str(line["product"].id),
+            "product_name": line["product"].name,
+            "original_unit_price": str(line["original_unit_price"]),
+            "unit_price": str(line["unit_price"]),
+            "quantity": str(line["quantity"]),
+            "reason": line["price_override_reason"],
+        }
+        for line in prepared_items
+        if line["has_manual_price_override"]
+    ]
+
     AuditLog.objects.create(
         business=business,
         actor=user,
         action="sale.created",
         object_type="Sale",
         object_id=str(sale.id),
-        detail={"origin": origin, "payment_method": payment_method, "total": str(total)},
+        detail={
+            "origin": origin,
+            "payment_method": payment_method,
+            "total": str(total),
+            "has_manual_price_override": bool(price_override_lines),
+            "price_override_lines": price_override_lines,
+        },
     )
     return sale
 
@@ -253,9 +282,30 @@ def create_pos_sale(business, user, items, payment_method, customer_id=None):
         product = products.get(item["product_id"])
         if not product:
             raise ValidationError("Producto no encontrado.")
-        line_total = (product.sale_price * item["quantity"]).quantize(Decimal("0.01"))
+        quantity = item["quantity"]
+        list_price = normalize_money_amount(product.sale_price)
+        unit_price = normalize_money_amount(item.get("unit_price", list_price))
+        has_manual_price_override = unit_price != list_price
+        price_override_reason = (item.get("price_override_reason") or "").strip()
+        if has_manual_price_override and not price_override_reason:
+            raise ValidationError(f"Captura el motivo del ajuste de precio para {product.name}.")
+        if not has_manual_price_override:
+            price_override_reason = ""
+
+        line_total = (unit_price * quantity).quantize(Decimal("0.01"))
         subtotal += line_total
-        prepared_items.append((product, item["quantity"], product.sale_price, Decimal("0.00"), line_total))
+        prepared_items.append(
+            {
+                "product": product,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "original_unit_price": list_price,
+                "has_manual_price_override": has_manual_price_override,
+                "price_override_reason": price_override_reason,
+                "line_discount": Decimal("0.00"),
+                "line_total": line_total,
+            }
+        )
 
     return _create_sale_with_items(
         business=business,
@@ -295,14 +345,30 @@ def create_specialized_sale(
             raise ValidationError("Producto no encontrado.")
 
         quantity = item["quantity"]
-        unit_price = normalize_money_amount(item.get("unit_price", product.sale_price))
+        list_price = normalize_money_amount(product.sale_price)
+        unit_price = normalize_money_amount(item.get("unit_price", list_price))
+        has_manual_price_override = unit_price != list_price
+        price_override_reason = (item.get("price_override_reason") or "").strip()
+        if not has_manual_price_override:
+            price_override_reason = ""
         line_subtotal = (unit_price * quantity).quantize(Decimal("0.01"))
         line_discount = normalize_money_amount(item.get("discount_amount", "0"))
         if line_discount > line_subtotal:
             raise ValidationError(f"El descuento de {product.name} no puede exceder el importe de la línea.")
         line_total = (line_subtotal - line_discount).quantize(Decimal("0.01"))
         subtotal += line_subtotal
-        prepared_items.append((product, quantity, unit_price, line_discount, line_total))
+        prepared_items.append(
+            {
+                "product": product,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "original_unit_price": list_price,
+                "has_manual_price_override": has_manual_price_override,
+                "price_override_reason": price_override_reason,
+                "line_discount": line_discount,
+                "line_total": line_total,
+            }
+        )
 
     return _create_sale_with_items(
         business=business,

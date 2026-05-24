@@ -1,4 +1,4 @@
-{% load static %}
+{% load static erp_extras %}
 <!doctype html>
 <html lang="es">
 <head>
@@ -50,33 +50,45 @@
           {% for item in sale.items.all %}
             <tr>
               <td>{{ item.product_name }}</td>
-              <td>{{ item.quantity }}</td>
+              <td>{{ item.quantity|compact_quantity }}</td>
               <td>${{ item.unit_price }}</td>
               <td>${{ item.discount_amount }}</td>
               <td>${{ item.line_total }}</td>
             </tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr>
-            <th colspan="4">Subtotal</th>
-            <th>${{ sale.subtotal }}</th>
-          </tr>
-          <tr>
-            <th colspan="4">Descuento por líneas</th>
-            <th>${{ sale.line_discount_total }}</th>
-          </tr>
-          <tr>
-            <th colspan="4">Descuento general</th>
-            <th>${{ sale.discount_total }}</th>
-          </tr>
-          <tr>
-            <th colspan="4">Total</th>
-            <th>${{ sale.total }}</th>
-          </tr>
-        </tfoot>
       </table>
     </div>
+
+    {% if sale.has_manual_price_override %}
+      <section class="document-notes">
+        <div>
+          <h2>Ajustes manuales de precio</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Lista</th>
+                  <th>Aplicado</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in sale.price_override_items %}
+                  <tr>
+                    <td>{{ item.product_name }}</td>
+                    <td>${{ item.original_unit_price }}</td>
+                    <td>${{ item.unit_price }}</td>
+                    <td>{{ item.price_override_reason|default:"Sin motivo" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    {% endif %}
 
     <section class="document-notes">
       <div>
@@ -89,10 +101,19 @@
       </div>
     </section>
 
+    <section class="document-totals">
+      <div><span>Subtotal</span><strong>${{ sale.subtotal }}</strong></div>
+      <div><span>Descuento por líneas</span><strong>${{ sale.line_discount_total }}</strong></div>
+      <div><span>Descuento general</span><strong>${{ sale.discount_total }}</strong></div>
+      <div class="grand-total"><span>Total</span><strong>${{ sale.total }}</strong></div>
+    </section>
+
     <div class="document-actions">
       <button class="small-button" type="button" onclick="window.print()">Imprimir</button>
       <a class="ghost-button" href="{% url 'sale_detail' sale.id %}">Volver a venta</a>
     </div>
+
+    <div class="print-page-number" aria-hidden="true"></div>
   </main>
 </body>
 </html>

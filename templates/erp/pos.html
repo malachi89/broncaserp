@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static erp_extras %}
 
 {% block page_title %}Punto de Venta{% endblock %}
 
@@ -18,7 +18,22 @@
         <a class="status-pill warn" href="{% url 'cash' %}">Abrir caja</a>
       {% endif %}
     </div>
-    <input id="barcode-input" class="search-input" type="search" placeholder="Escanea código, SKU o busca producto" autocomplete="off" autofocus>
+    <form method="get" class="inline-search">
+      <input
+        id="barcode-input"
+        name="q"
+        value="{{ query }}"
+        class="search-input"
+        type="search"
+        placeholder="Escanea código, SKU o busca producto"
+        autocomplete="off"
+        autofocus
+      >
+      <button class="small-button" type="submit">Buscar</button>
+    </form>
+    {% if not query %}
+      <p class="helper-text">Busca productos para cargarlos. No se listan todos por rendimiento.</p>
+    {% endif %}
     <div class="product-grid" id="product-grid">
       {% for product in products %}
         <button
@@ -33,8 +48,12 @@
         >
           <strong>{{ product.name }}</strong>
           <span>${{ product.sale_price }}</span>
-          <small>{{ product.stock_quantity }} {{ product.unit }}</small>
+          <small>{{ product.stock_quantity|compact_quantity }} {{ product.unit }}</small>
         </button>
+      {% empty %}
+        {% if query %}
+          <p class="helper-text">Sin resultados para "{{ query }}".</p>
+        {% endif %}
       {% endfor %}
     </div>
   </div>
@@ -46,6 +65,7 @@
       <h2>Ticket</h2>
       <button type="button" class="ghost-button" id="clear-cart">Limpiar</button>
     </div>
+    <p class="helper-text">Puedes capturar precio manual por línea; si cambia del precio lista, el motivo es obligatorio y quedará marcado en la venta.</p>
     <div id="pos-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
     <div id="cart-lines" class="cart-lines"></div>
     <div class="cart-total">
@@ -76,5 +96,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/integer_stepper.js' %}"></script>
 <script src="{% static 'js/pos.js' %}"></script>
 {% endblock %}

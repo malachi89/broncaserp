@@ -24,6 +24,13 @@
       <h2>Cartera de clientes</h2>
       <a class="small-button" href="{% url 'new_sale' %}">Nueva venta</a>
     </div>
+    <form method="get" class="inline-search">
+      <input name="q" value="{{ query }}" placeholder="Buscar por cliente, contacto, RFC o teléfono">
+      <button class="small-button" type="submit">Buscar</button>
+    </form>
+    {% if not query and not editing_customer %}
+      <p class="helper-text">Busca clientes para listarlos. No se carga la cartera completa al abrir.</p>
+    {% endif %}
     <div class="table-wrap">
       <table>
         <thead>
@@ -53,7 +60,13 @@
               <td><a class="text-link" href="{% url 'clients' %}?edit={{ customer.id }}">Editar</a></td>
             </tr>
           {% empty %}
-            <tr><td colspan="6">Todavía no hay clientes registrados.</td></tr>
+            {% if query %}
+              <tr><td colspan="6">Sin resultados para "{{ query }}".</td></tr>
+            {% elif editing_customer %}
+              <tr><td colspan="6">Mostrando solo el cliente en edición.</td></tr>
+            {% else %}
+              <tr><td colspan="6">Escribe una búsqueda para ver clientes.</td></tr>
+            {% endif %}
           {% endfor %}
         </tbody>
       </table>

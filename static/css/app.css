@@ -197,13 +197,13 @@ h2 {
 
 .pos-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
 
 .sale-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 430px;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.4fr);
   gap: 1rem;
 }
 
@@ -263,9 +263,21 @@ h2 {
   gap: 0.6rem;
 }
 
+.sale-cart-lines-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 72px 92px 92px 34px;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .cart-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 74px 82px 34px;
+  grid-template-columns: minmax(0, 1fr) 74px 92px 92px 34px;
   gap: 0.45rem;
   align-items: center;
   border-bottom: 1px solid var(--line);
@@ -288,6 +300,24 @@ h2 {
 
 .sale-cart-line small {
   color: var(--muted);
+}
+
+.sale-line-field {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.sale-line-field span,
+.sale-line-total span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sale-line-total strong {
+  font-size: 0.95rem;
 }
 
 .sale-cart-line button {
@@ -637,6 +667,58 @@ th {
   text-align: right;
 }
 
+.document-sheet table {
+  font-size: 0.92rem;
+}
+
+.document-sheet th,
+.document-sheet td {
+  padding: 0.5rem 0.45rem;
+}
+
+.document-totals {
+  margin-top: 1rem;
+  margin-left: auto;
+  width: min(360px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.document-totals div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.document-totals span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.document-totals strong {
+  font-size: 0.98rem;
+}
+
+.document-totals .grand-total {
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.45rem;
+}
+
+.document-totals .grand-total strong {
+  font-size: 1.12rem;
+}
+
+.print-page-number {
+  display: none;
+}
+
 @media (max-width: 980px) {
   .shell {
     grid-template-columns: 1fr;
@@ -695,27 +777,46 @@ th {
   }
 
   .cart-line {
-    grid-template-columns: minmax(0, 1fr) 66px 74px 32px;
+    grid-template-columns: minmax(0, 1fr) 64px 78px 78px 32px;
   }
 
   .sale-cart-line {
-    grid-template-columns: minmax(0, 1fr) 70px 88px;
+    grid-template-columns: minmax(0, 1fr) 1fr;
+    gap: 0.6rem;
+  }
+
+  .sale-cart-lines-head {
+    display: none;
+  }
+
+  .sale-line-product {
+    grid-column: 1 / -1;
+  }
+
+  .sale-line-total {
+    grid-column: 1 / 2;
+  }
+
+  .sale-cart-line button {
+    grid-column: 2 / 3;
+    justify-self: end;
   }
 
   .inline-form {
     flex-wrap: wrap;
   }
-
-  .sale-cart-line span,
-  .sale-cart-line button {
-    grid-column: auto;
-  }
 }
 
 @media print {
+  @page {
+    size: auto;
+    margin: 12mm 10mm 16mm;
+  }
+
   .document-body {
     background: #fff;
     padding: 0;
+    font-size: 12px;
   }
 
   .document-sheet {
@@ -726,7 +827,54 @@ th {
     padding: 0;
   }
 
+  .document-header,
+  .document-grid,
+  .document-notes {
+    gap: 0.65rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .document-sheet h1 {
+    font-size: 1.25rem;
+  }
+
+  .document-sheet h2 {
+    font-size: 0.9rem;
+  }
+
+  .document-sheet p {
+    margin: 0.15rem 0;
+  }
+
+  .document-sheet th,
+  .document-sheet td {
+    padding: 0.22rem 0.24rem;
+  }
+
+  .document-sheet th {
+    font-size: 0.68rem;
+  }
+
+  .document-totals {
+    margin-top: 0.65rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 0;
+  }
+
   .document-actions {
     display: none;
+  }
+
+  .print-page-number {
+    display: block;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    color: #5b6575;
+    font-size: 0.75rem;
+  }
+
+  .print-page-number::after {
+    content: "Página " counter(page) " de " counter(pages);
   }
 }

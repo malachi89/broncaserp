@@ -5,7 +5,7 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -179,12 +179,22 @@ def pos(request):
                 payment_method=request.POST.get("payment_method", SalePayment.Method.CASH),
                 customer_id=request.POST.get("customer_id") or None,
             )
-            messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}.")
+            if sale.has_manual_price_override:
+                messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}. Se aplicó precio manual en una o más líneas.")
+            else:
+                messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}.")
             return redirect("pos")
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
 
-    products = Product.objects.filter(business=business, is_active=True).order_by("name")[:500]
+    query = request.GET.get("q", "").strip()
+    products = Product.objects.none()
+    if query:
+        products = (
+            Product.objects.filter(business=business, is_active=True)
+            .filter(Q(name__icontains=query) | Q(barcode__icontains=query) | Q(sku__icontains=query))
+            .order_by("name")[:80]
+        )
     customers = Customer.objects.filter(business=business, is_active=True).order_by("name")
     return render(
         request,
@@ -193,6 +203,7 @@ def pos(request):
             "products": products,
             "customers": customers,
             "cash_session": current_cash_session(business, request.user),
+            "query": query,
         },
     )
 
@@ -221,10 +232,15 @@ def inventory(request):
         form = ProductForm(business=business)
 
     query = request.GET.get("q", "").strip()
-    products = Product.objects.filter(business=business).select_related("category")
+    products = Product.objects.none()
     if query:
-        products = products.filter(name__icontains=query) | Product.objects.filter(business=business, barcode__icontains=query)
-    return render(request, "erp/inventory.html", {"form": form, "products": products.order_by("name")[:300], "query": query})
+        products = (
+            Product.objects.filter(business=business)
+            .select_related("category")
+            .filter(Q(name__icontains=query) | Q(barcode__icontains=query) | Q(sku__icontains=query))
+            .order_by("name")[:300]
+        )
+    return render(request, "erp/inventory.html", {"form": form, "products": products, "query": query})
 
 
 @tenant_required
@@ -250,7 +266,23 @@ def clients(request):
         editing_customer = resolve_editing_customer()
         form = CustomerForm(business=business, instance=editing_customer)
 
-    customers = Customer.objects.filter(business=business).select_related("credit_account").order_by("name")
+    query = request.GET.get("q", "").strip()
+    customers = Customer.objects.none()
+    if query:
+        customers = (
+            Customer.objects.filter(business=business)
+            .select_related("credit_account")
+            .filter(
+                Q(name__icontains=query)
+                | Q(contact_name__icontains=query)
+                | Q(phone__icontains=query)
+                | Q(email__icontains=query)
+                | Q(tax_id__icontains=query)
+            )
+            .order_by("name")[:300]
+        )
+    elif editing_customer:
+        customers = Customer.objects.filter(business=business, pk=editing_customer.pk).select_related("credit_account")
     return render(
         request,
         "erp/clients.html",
@@ -258,6 +290,7 @@ def clients(request):
             "form": form,
             "customers": customers,
             "editing_customer": editing_customer,
+            "query": query,
         },
     )
 
@@ -266,15 +299,37 @@ def clients(request):
 @module_access_required("can_access_sales_effective")
 def sales(request):
     business = request.business
-    sales_list = specialized_sales_queryset(business)[:80]
-    return render(request, "erp/sales.html", {"sales": sales_list})
+    query = request.GET.get("q", "").strip()
+    sales_list = Sale.objects.none()
+    if query:
+        filters = (
+            Q(customer__name__icontains=query)
+            | Q(status__icontains=query)
+            | Q(payments__method__icontains=query)
+        )
+        if query.upper().startswith("VT-"):
+            numeric_part = query.split("-", 1)[1].lstrip("0")
+            if numeric_part.isdigit():
+                filters |= Q(id=int(numeric_part))
+        elif query.isdigit():
+            filters |= Q(id=int(query))
+
+        sales_list = specialized_sales_queryset(business).filter(filters).distinct()[:80]
+    return render(request, "erp/sales.html", {"sales": sales_list, "query": query})
 
 
 @tenant_required
 @module_access_required("can_access_sales_effective")
 def new_sale(request):
     business = request.business
-    products = Product.objects.filter(business=business, is_active=True).order_by("name")[:500]
+    query = request.GET.get("q", "").strip()
+    products = Product.objects.none()
+    if query:
+        products = (
+            Product.objects.filter(business=business, is_active=True)
+            .filter(Q(name__icontains=query) | Q(barcode__icontains=query) | Q(sku__icontains=query))
+            .order_by("name")[:80]
+        )
     customers = Customer.objects.filter(business=business, is_active=True).order_by("name")
 
     if request.method == "POST":
@@ -307,6 +362,7 @@ def new_sale(request):
             "form": form,
             "products": products,
             "customers": customers,
+            "query": query,
         },
     )
 
@@ -336,25 +392,6 @@ def sale_note(request, sale_id):
             "document_title": "Nota de venta",
             "document_code": "NV",
             "document_legend": "Documento interno para control comercial.",
-        },
-    )
-
-
-@tenant_required
-@module_access_required("can_access_sales_effective")
-def sale_invoice(request, sale_id):
-    sale = get_object_or_404(
-        specialized_sales_queryset(request.business),
-        pk=sale_id,
-    )
-    return render(
-        request,
-        "erp/sale_document.html",
-        {
-            "sale": sale,
-            "document_title": "Factura no timbrada",
-            "document_code": "FNT",
-            "document_legend": "Documento interno sin timbrado fiscal. No sustituye un CFDI.",
         },
     )
 

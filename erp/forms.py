@@ -42,6 +42,10 @@ class ProductForm(forms.ModelForm):
     def __init__(self, *args, business=None, **kwargs):
         self.business = business
         super().__init__(*args, **kwargs)
+        self.fields["stock_quantity"].widget.attrs["step"] = "any"
+        self.fields["stock_quantity"].widget.attrs["data-step-one"] = "true"
+        self.fields["min_stock"].widget.attrs["step"] = "any"
+        self.fields["min_stock"].widget.attrs["data-step-one"] = "true"
 
     def save(self, commit=True):
         product = super().save(commit=False)

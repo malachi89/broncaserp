@@ -2,11 +2,12 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
+    AuditLog,
     Business,
     BusinessMembership,
     CashSession,
@@ -19,6 +20,7 @@ from .models import (
     SalePayment,
 )
 from .services import create_pos_sale, create_specialized_sale
+from .templatetags.erp_extras import compact_quantity
 
 
 User = get_user_model()
@@ -124,6 +126,41 @@ class ErpDomainTests(TestCase):
         self.assertEqual(self.product.stock_quantity, Decimal("-2.000"))
         self.assertEqual(movement.stock_after, Decimal("-2.000"))
 
+    def test_pos_sale_allows_manual_price_override_with_trace(self):
+        sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[
+                {
+                    "product_id": self.product.id,
+                    "quantity": "2",
+                    "unit_price": "15.50",
+                    "price_override_reason": "Ajuste por empaque dañado",
+                }
+            ],
+            payment_method=SalePayment.Method.CASH,
+        )
+
+        item = sale.items.get()
+        audit = AuditLog.objects.get(action="sale.created", object_id=str(sale.id))
+        self.assertEqual(sale.total, Decimal("31.00"))
+        self.assertTrue(sale.has_manual_price_override)
+        self.assertTrue(item.has_manual_price_override)
+        self.assertEqual(item.original_unit_price, Decimal("18.00"))
+        self.assertEqual(item.unit_price, Decimal("15.50"))
+        self.assertEqual(item.price_override_reason, "Ajuste por empaque dañado")
+        self.assertTrue(audit.detail.get("has_manual_price_override"))
+        self.assertEqual(len(audit.detail.get("price_override_lines", [])), 1)
+
+    def test_pos_sale_rejects_manual_price_override_without_reason(self):
+        with self.assertRaises(ValidationError):
+            create_pos_sale(
+                business=self.business,
+                user=self.user,
+                items=[{"product_id": self.product.id, "quantity": "1", "unit_price": "14.00"}],
+                payment_method=SalePayment.Method.CASH,
+            )
+
     def test_credit_sale_creates_balance_and_respects_limit(self):
         customer = Customer.objects.create(business=self.business, name="Don Chema")
         account = customer.credit_account
@@ -209,10 +246,19 @@ class ErpDomainTests(TestCase):
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
 
-        response = client.get(reverse("inventory"))
+        response = client.get(reverse("inventory"), {"q": "Refresco"})
 
         self.assertContains(response, "Refresco")
         self.assertNotContains(response, "Martillo")
+
+    def test_inventory_view_does_not_load_catalog_without_query(self):
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("inventory"))
+
+        self.assertContains(response, "Escribe una búsqueda para ver productos.")
+        self.assertNotContains(response, "Refresco")
 
     def test_clients_edit_updates_existing_customer(self):
         customer = Customer.objects.create(
@@ -458,6 +504,10 @@ class ErpDomainTests(TestCase):
         response = client.get(reverse("new_sale"))
 
         self.assertContains(response, 'id="customer-search"', html=False)
+        self.assertContains(response, 'id="customer-options"', html=False)
+        self.assertContains(response, 'type="hidden" name="customer_id"', html=False)
+        self.assertContains(response, "Cantidad")
+        self.assertContains(response, "Descuento")
 
     def test_specialized_sale_documents_render(self):
         customer = Customer.objects.create(business=self.business, name="Cafeteria Luna")
@@ -473,11 +523,55 @@ class ErpDomainTests(TestCase):
         self.assertTrue(client.login(username="cajero", password="secret123"))
 
         note_response = client.get(reverse("sale_note", args=[sale.id]))
-        invoice_response = client.get(reverse("sale_invoice", args=[sale.id]))
 
         self.assertContains(note_response, "Nota de venta")
         self.assertContains(note_response, sale.folio)
-        self.assertContains(invoice_response, "Factura no timbrada")
+
+    def test_sales_page_shows_status_and_payment_method_columns(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Metodo")
+        create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CREDIT,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("sales"), {"q": "Cliente Metodo"})
+
+        self.assertContains(response, "Estado")
+        self.assertContains(response, "Método")
+        self.assertContains(response, "Pendiente de pago")
+        self.assertContains(response, "Crédito")
+
+    def test_sales_page_does_not_load_list_without_query(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Sin Lista")
+        create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("sales"))
+
+        self.assertContains(response, "Escribe una búsqueda para ver ventas.")
+        self.assertNotContains(response, "Cliente Sin Lista")
+
+    def test_clients_page_does_not_load_list_without_query(self):
+        Customer.objects.create(business=self.business, name="Cliente Busqueda")
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("clients"))
+
+        self.assertContains(response, "Escribe una búsqueda para ver clientes.")
+        self.assertNotContains(response, "Cliente Busqueda")
 
     def test_owner_membership_cannot_be_edited_from_settings(self):
         client = Client()
@@ -527,3 +621,11 @@ class ErpDomainTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class QuantityFormatTemplateFilterTests(SimpleTestCase):
+    def test_compact_quantity_hides_trailing_zeros_for_whole_numbers(self):
+        self.assertEqual(compact_quantity(Decimal("5.000")), "5")
+
+    def test_compact_quantity_keeps_significant_decimals(self):
+        self.assertEqual(compact_quantity(Decimal("5.500")), "5.5")

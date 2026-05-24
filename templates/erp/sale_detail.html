@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load erp_extras %}
 
 {% block page_title %}{{ sale.folio }}{% endblock %}
 
@@ -7,11 +8,10 @@
   <div class="panel-header">
     <div>
       <h2>{{ sale.folio }}</h2>
-      <p class="helper-text">{{ sale.customer.name }} · {{ sale.get_status_display }} · {{ sale.created_at|date:"Y-m-d H:i" }}</p>
+      <p class="helper-text">{{ sale.customer.name }} · {{ sale.get_status_display }} · {{ sale.primary_payment_method_display }} · {{ sale.created_at|date:"Y-m-d H:i" }}</p>
     </div>
     <div class="action-row">
       <a class="ghost-button" href="{% url 'sale_note' sale.id %}">Nota</a>
-      <a class="ghost-button" href="{% url 'sale_invoice' sale.id %}">Factura</a>
       <a class="small-button" href="{% url 'new_sale' %}">Nueva venta</a>
     </div>
   </div>
@@ -22,6 +22,32 @@
     <dt>Nota cliente</dt><dd>{{ sale.customer_note|default:"Sin nota" }}</dd>
     <dt>Nota interna</dt><dd>{{ sale.internal_note|default:"Sin nota" }}</dd>
   </div>
+
+  {% if sale.has_manual_price_override %}
+    <div class="message warn">Este ticket incluye ajustes manuales de precio.</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Precio lista</th>
+            <th>Precio aplicado</th>
+            <th>Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in sale.price_override_items %}
+            <tr>
+              <td>{{ item.product_name }}</td>
+              <td>${{ item.original_unit_price }}</td>
+              <td>${{ item.unit_price }}</td>
+              <td>{{ item.price_override_reason|default:"Sin motivo" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 
   <div class="table-wrap">
     <table>
@@ -38,7 +64,7 @@
         {% for item in sale.items.all %}
           <tr>
             <td>{{ item.product_name }}</td>
-            <td>{{ item.quantity }}</td>
+            <td>{{ item.quantity|compact_quantity }}</td>
             <td>${{ item.unit_price }}</td>
             <td>${{ item.discount_amount }}</td>
             <td>${{ item.line_total }}</td>

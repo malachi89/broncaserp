@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static erp_extras %}
 
 {% block page_title %}Nueva Venta{% endblock %}
 
@@ -13,7 +13,21 @@
       </div>
       <a class="ghost-button" href="{% url 'sales' %}">Volver</a>
     </div>
-    <input id="sale-product-search" class="search-input" type="search" placeholder="Busca por nombre, código o SKU" autocomplete="off">
+    <form method="get" class="inline-search">
+      <input
+        id="sale-product-search"
+        name="q"
+        value="{{ query }}"
+        class="search-input"
+        type="search"
+        placeholder="Busca por nombre, código o SKU"
+        autocomplete="off"
+      >
+      <button class="small-button" type="submit">Buscar</button>
+    </form>
+    {% if not query %}
+      <p class="helper-text">Busca productos para cargarlos. No se listan todos por rendimiento.</p>
+    {% endif %}
     <div class="product-grid" id="sale-product-grid">
       {% for product in products %}
         <button
@@ -28,8 +42,12 @@
         >
           <strong>{{ product.name }}</strong>
           <span>${{ product.sale_price }}</span>
-          <small>{{ product.stock_quantity }} {{ product.unit }}</small>
+          <small>{{ product.stock_quantity|compact_quantity }} {{ product.unit }}</small>
         </button>
+      {% empty %}
+        {% if query %}
+          <p class="helper-text">Sin resultados para "{{ query }}".</p>
+        {% endif %}
       {% endfor %}
     </div>
   </div>
@@ -48,20 +66,30 @@
     <label>
       Cliente
       {{ form.customer_id.errors }}
-      <input id="customer-search" class="search-input" type="search" placeholder="Busca cliente por nombre, contacto, teléfono o RFC" autocomplete="off">
-      <select name="customer_id" id="customer-id" required>
-        <option value="">Selecciona cliente</option>
+      <input type="hidden" name="customer_id" id="customer-id" value="{{ form.data.customer_id|default:'' }}" required>
+      <input
+        id="customer-search"
+        name="customer_name"
+        class="search-input"
+        type="search"
+        list="customer-options"
+        placeholder="Busca y selecciona cliente (nombre, contacto, teléfono o RFC)"
+        autocomplete="off"
+        value="{{ form.data.customer_name|default:'' }}"
+        required
+      >
+      <datalist id="customer-options">
         {% for customer in customers %}
           <option
-            value="{{ customer.id }}"
+            value="{{ customer.name }}{% if customer.phone %} · {{ customer.phone }}{% elif customer.tax_id %} · {{ customer.tax_id }}{% endif %}"
+            data-id="{{ customer.id }}"
             data-address="{{ customer.address }}"
             data-search="{{ customer.name }} {{ customer.contact_name }} {{ customer.phone }} {{ customer.email }} {{ customer.tax_id }}"
-            {% if form.data.customer_id == customer.id|stringformat:"s" %}selected{% endif %}
           >
             {{ customer.name }}
           </option>
         {% endfor %}
-      </select>
+      </datalist>
     </label>
 
     <label>
@@ -70,6 +98,13 @@
       <textarea name="shipping_address" id="shipping-address" rows="3">{{ form.data.shipping_address|default:form.fields.shipping_address.initial }}</textarea>
     </label>
 
+    <div class="sale-cart-lines-head" aria-hidden="true">
+      <span>Producto</span>
+      <span>Cantidad</span>
+      <span>Descuento</span>
+      <span>Total</span>
+      <span></span>
+    </div>
     <div id="sale-cart-lines" class="sale-cart-lines"></div>
 
     <div class="sale-summary">
@@ -106,5 +141,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/integer_stepper.js' %}"></script>
 <script src="{% static 'js/sales.js' %}"></script>
 {% endblock %}

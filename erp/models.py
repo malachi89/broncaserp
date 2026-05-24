@@ -348,7 +348,7 @@ class Sale(TimeStampedModel):
 
     class Status(models.TextChoices):
         PAID = "paid", "Pagada"
-        CREDIT = "credit", "Crédito"
+        CREDIT = "credit", "Pendiente de pago"
         CANCELLED = "cancelled", "Cancelada"
 
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="sales")
@@ -388,6 +388,30 @@ class Sale(TimeStampedModel):
             return sum((item.discount_amount for item in self.items.all()), Decimal("0.00"))
         return sum((item.discount_amount for item in self.items.all()), Decimal("0.00"))
 
+    @property
+    def primary_payment_method_display(self):
+        if hasattr(self, "_prefetched_objects_cache") and "payments" in self._prefetched_objects_cache:
+            payments = self._prefetched_objects_cache.get("payments") or []
+            if payments:
+                return payments[0].get_method_display()
+            return "Sin método"
+
+        payment = self.payments.order_by("created_at").first()
+        return payment.get_method_display() if payment else "Sin método"
+
+    @property
+    def price_override_items(self):
+        if hasattr(self, "_prefetched_objects_cache") and "items" in self._prefetched_objects_cache:
+            return [item for item in self.items.all() if item.has_manual_price_override]
+        return self.items.filter(has_manual_price_override=True)
+
+    @property
+    def has_manual_price_override(self):
+        override_items = self.price_override_items
+        if isinstance(override_items, list):
+            return bool(override_items)
+        return override_items.exists()
+
 
 class SaleItem(TimeStampedModel):
     sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
@@ -396,6 +420,9 @@ class SaleItem(TimeStampedModel):
     product_name = models.CharField(max_length=180)
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    original_unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    has_manual_price_override = models.BooleanField(default=False)
+    price_override_reason = models.CharField(max_length=240, blank=True)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     line_total = models.DecimalField(max_digits=12, decimal_places=2)
 

@@ -11,6 +11,10 @@
   const posFeedback = document.getElementById("pos-feedback");
   const cart = new Map();
 
+  function asMoneyCents(value) {
+    return Math.round(Number(value || 0) * 100);
+  }
+
   function normalize(value) {
     return String(value || "").trim().toLowerCase();
   }
@@ -63,7 +67,7 @@
   }
 
   function addProduct(product) {
-    const current = cart.get(product.id) || { product, quantity: 0 };
+    const current = cart.get(product.id) || { product, quantity: 0, unitPrice: product.price, priceOverrideReason: "" };
     current.quantity += 1;
     cart.set(product.id, current);
     renderCart();
@@ -84,24 +88,48 @@
   function renderCart() {
     cartLines.innerHTML = "";
     let total = 0;
-    cart.forEach(({ product, quantity }) => {
-      total += product.price * quantity;
+    cart.forEach((lineState) => {
+      const { product, quantity } = lineState;
+      if (!Number.isFinite(lineState.unitPrice) || lineState.unitPrice <= 0) {
+        lineState.unitPrice = product.price;
+      }
+      const isPriceOverride = asMoneyCents(lineState.unitPrice) !== asMoneyCents(product.price);
+      const lineTotal = lineState.unitPrice * quantity;
+      total += lineTotal;
       const line = document.createElement("div");
       line.className = "cart-line";
       line.innerHTML = `
-        <strong title="${product.name}">${product.name}</strong>
-        <input type="number" min="0.001" step="0.001" value="${quantity}">
-        <span>${money(product.price * quantity)}</span>
+        <div>
+          <strong title="${product.name}">${product.name}</strong>
+        </div>
+        <input type="number" min="0.001" step="any" data-step-one="true" value="${quantity}" aria-label="Cantidad de ${product.name}">
+        <input type="number" min="0.01" step="0.01" value="${lineState.unitPrice.toFixed(2)}" aria-label="Precio unitario de ${product.name}">
+        <span>${money(lineTotal)}</span>
         <button type="button" title="Quitar">x</button>
       `;
-      const input = line.querySelector("input");
-      input.addEventListener("change", () => {
-        const nextQuantity = Number(input.value);
+      const [quantityInput, unitPriceInput] = line.querySelectorAll("input");
+      quantityInput.addEventListener("change", () => {
+        const nextQuantity = Number(quantityInput.value);
         if (!nextQuantity || nextQuantity <= 0) {
           cart.delete(product.id);
         } else {
-          cart.set(product.id, { product, quantity: nextQuantity });
+          lineState.quantity = nextQuantity;
+          cart.set(product.id, lineState);
         }
+        renderCart();
+      });
+      unitPriceInput.addEventListener("change", () => {
+        const nextUnitPrice = Number(unitPriceInput.value);
+        if (!nextUnitPrice || nextUnitPrice <= 0) {
+          showFeedback(`El precio de ${product.name} debe ser mayor a cero.`, "error");
+          lineState.unitPrice = product.price;
+        } else {
+          lineState.unitPrice = nextUnitPrice;
+        }
+        if (asMoneyCents(lineState.unitPrice) === asMoneyCents(product.price)) {
+          lineState.priceOverrideReason = "";
+        }
+        cart.set(product.id, lineState);
         renderCart();
       });
       line.querySelector("button").addEventListener("click", () => {
@@ -112,12 +140,32 @@
     });
     cartTotal.textContent = money(total);
     cartJson.value = JSON.stringify(
-      Array.from(cart.values()).map(({ product, quantity }) => ({
-        product_id: product.id,
-        quantity,
+      Array.from(cart.values()).map((lineState) => ({
+        product_id: lineState.product.id,
+        quantity: lineState.quantity,
+        unit_price: Number(lineState.unitPrice.toFixed(2)),
+        price_override_reason: lineState.priceOverrideReason || "",
       }))
     );
     syncStockFeedback();
+  }
+
+  function ensureOverrideReasons() {
+    for (const lineState of cart.values()) {
+      const isPriceOverride = asMoneyCents(lineState.unitPrice) !== asMoneyCents(lineState.product.price);
+      if (!isPriceOverride) continue;
+      if (String(lineState.priceOverrideReason || "").trim()) continue;
+
+      const capturedReason = window.prompt(
+        `Captura el motivo del ajuste de precio para ${lineState.product.name}:`
+      );
+      const normalizedReason = String(capturedReason || "").trim();
+      if (!normalizedReason) {
+        return { ok: false, productName: lineState.product.name };
+      }
+      lineState.priceOverrideReason = normalizedReason;
+    }
+    return { ok: true };
   }
 
   productButtons.forEach((button) => {
@@ -145,6 +193,10 @@
       addProduct(product);
       searchInput.value = "";
       productButtons.forEach((button) => (button.hidden = false));
+      return;
+    }
+    if (searchInput.form) {
+      searchInput.form.requestSubmit();
     }
   });
 
@@ -163,7 +215,15 @@
     if (cart.size === 0) {
       event.preventDefault();
       showFeedback("Agrega productos al ticket.", "error");
+      return;
     }
+    const reasonValidation = ensureOverrideReasons();
+    if (!reasonValidation.ok) {
+      event.preventDefault();
+      showFeedback(`Captura el motivo del ajuste de precio para ${reasonValidation.productName}.`, "error");
+      return;
+    }
+    renderCart();
   });
 
   renderCart();

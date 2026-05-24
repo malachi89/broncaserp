@@ -10,26 +10,25 @@
   const totalNode = document.getElementById("sale-total");
   const generalDiscountInput = document.getElementById("sale-discount-total");
   const customerSearchInput = document.getElementById("customer-search");
-  const customerSelect = document.getElementById("customer-id");
+  const customerIdInput = document.getElementById("customer-id");
+  const customerDatalist = document.getElementById("customer-options");
   const shippingAddress = document.getElementById("shipping-address");
   const cart = new Map();
-  const selectedCustomerOption = customerSelect
-    ? customerSelect.querySelector('option[value="' + customerSelect.value + '"]')
+  const customerRecords = customerDatalist
+    ? Array.from(customerDatalist.querySelectorAll("option")).map((option) => ({
+        id: option.dataset.id || "",
+        display: option.value || "",
+        address: (option.dataset.address || "").trim(),
+        search: normalize(option.dataset.search || option.value || ""),
+      }))
+    : [];
+  const selectedCustomerRecord = customerIdInput
+    ? customerRecords.find((record) => record.id === String(customerIdInput.value || ""))
     : null;
   const customerState = {
-    selectedAddress: selectedCustomerOption ? (selectedCustomerOption.dataset.address || "").trim() : "",
+    selectedAddress: selectedCustomerRecord ? selectedCustomerRecord.address : "",
     customAddressTyped: false,
   };
-  const customerOptions = customerSelect
-    ? Array.from(customerSelect.options)
-        .filter((option) => option.value)
-        .map((option) => ({
-          value: option.value,
-          label: option.textContent,
-          address: option.dataset.address || "",
-          search: normalize((option.dataset.search || option.textContent || "").toLowerCase()),
-        }))
-    : [];
 
   function normalize(value) {
     return String(value || "").trim().toLowerCase();
@@ -107,11 +106,29 @@
     clearFeedback();
   }
 
+  function selectedCustomerRecordFromInput() {
+    if (!customerSearchInput || !customerIdInput) return null;
+    const value = normalize(customerSearchInput.value);
+    if (!value) {
+      customerIdInput.value = "";
+      return null;
+    }
+
+    const exactRecord = customerRecords.find((record) => normalize(record.display) === value);
+    if (exactRecord) {
+      customerIdInput.value = exactRecord.id;
+      return exactRecord;
+    }
+
+    customerIdInput.value = "";
+    return null;
+  }
+
   function updateShippingAddress() {
-    if (!customerSelect || !shippingAddress) return;
-    const option = customerSelect.options[customerSelect.selectedIndex];
-    if (!option) return;
-    const nextAddress = (option.dataset.address || "").trim();
+    if (!shippingAddress) return;
+    const customerRecord = selectedCustomerRecordFromInput();
+    if (!customerRecord) return;
+    const nextAddress = customerRecord.address;
     const currentAddress = shippingAddress.value.trim();
     const shouldReplaceAddress =
       !currentAddress || currentAddress === customerState.selectedAddress || !customerState.customAddressTyped;
@@ -120,35 +137,6 @@
     shippingAddress.value = nextAddress;
     customerState.selectedAddress = nextAddress;
     customerState.customAddressTyped = false;
-  }
-
-  function renderCustomerOptions() {
-    if (!customerSelect) return;
-    const selectedValue = customerSelect.value;
-    const query = normalize(customerSearchInput ? customerSearchInput.value : "");
-    const filtered = customerOptions.filter((option) => !query || option.search.includes(query));
-    const selectedOptionMissing = selectedValue && !filtered.some((option) => option.value === selectedValue);
-    const entries = selectedOptionMissing
-      ? [customerOptions.find((option) => option.value === selectedValue), ...filtered].filter(Boolean)
-      : filtered;
-
-    customerSelect.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Selecciona cliente";
-    customerSelect.appendChild(placeholder);
-
-    entries.forEach((optionData) => {
-      const option = document.createElement("option");
-      option.value = optionData.value;
-      option.textContent = optionData.label;
-      option.dataset.address = optionData.address;
-      option.dataset.search = optionData.search;
-      if (optionData.value === selectedValue) {
-        option.selected = true;
-      }
-      customerSelect.appendChild(option);
-    });
   }
 
   function renderCart() {
@@ -169,14 +157,23 @@
       const row = document.createElement("div");
       row.className = "sale-cart-line";
       row.innerHTML = `
-        <div>
+        <div class="sale-line-product">
           <strong title="${line.product.name}">${line.product.name}</strong>
           <small>${money(line.product.price)} c/u</small>
         </div>
-        <input type="number" min="0.001" step="0.001" value="${line.quantity}">
-        <input type="number" min="0" step="0.01" value="${line.discount.toFixed(2)}">
-        <span>${money(lineTotal)}</span>
-        <button type="button" title="Quitar">x</button>
+        <label class="sale-line-field">
+          <span>Cantidad</span>
+          <input type="number" min="0.001" step="any" data-step-one="true" value="${line.quantity}" aria-label="Cantidad de ${line.product.name}">
+        </label>
+        <label class="sale-line-field">
+          <span>Descuento</span>
+          <input type="number" min="0" step="0.01" value="${line.discount.toFixed(2)}" aria-label="Descuento de ${line.product.name}">
+        </label>
+        <div class="sale-line-total">
+          <span>Total</span>
+          <strong>${money(lineTotal)}</strong>
+        </div>
+        <button type="button" title="Quitar" aria-label="Quitar ${line.product.name}">x</button>
       `;
 
       const [quantityInput, discountInput] = row.querySelectorAll("input");
@@ -246,11 +243,16 @@
       productButtons.forEach((button) => {
         button.hidden = false;
       });
+      return;
+    }
+    if (searchInput.form) {
+      searchInput.form.requestSubmit();
     }
   });
 
   if (customerSearchInput) {
-    customerSearchInput.addEventListener("input", renderCustomerOptions);
+    customerSearchInput.addEventListener("input", updateShippingAddress);
+    customerSearchInput.addEventListener("change", updateShippingAddress);
   }
 
   if (shippingAddress) {
@@ -259,7 +261,6 @@
     });
   }
 
-  customerSelect.addEventListener("change", updateShippingAddress);
   generalDiscountInput.addEventListener("input", renderCart);
   clearCart.addEventListener("click", () => {
     cart.clear();
@@ -272,13 +273,17 @@
       showFeedback("Agrega al menos un producto a la venta.", "error");
       return;
     }
-    if (!customerSelect.value) {
+    selectedCustomerRecordFromInput();
+    if (!customerIdInput || !customerIdInput.value) {
       event.preventDefault();
-      showFeedback("Selecciona un cliente para continuar.", "error");
+      showFeedback("Selecciona un cliente válido de la lista para continuar.", "error");
     }
   });
 
-  renderCustomerOptions();
+  if (customerSearchInput && selectedCustomerRecord && !customerSearchInput.value.trim()) {
+    customerSearchInput.value = selectedCustomerRecord.display;
+  }
+
   updateShippingAddress();
   renderCart();
 })();
