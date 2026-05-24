@@ -681,6 +681,30 @@ th {
 .dashboard-filter .primary-button {
   width: auto;
   min-width: 110px;
+  align-self: end;
+}
+
+.dashboard-filter {
+  align-items: end;
+  gap: 0.6rem;
+}
+
+.dashboard-filter label {
+  margin: 0;
+}
+
+.dashboard-filter input[type="date"] {
+  min-width: 150px;
+}
+
+@media (max-width: 720px) {
+  .dashboard-filter {
+    align-items: stretch;
+  }
+
+  .dashboard-filter .primary-button {
+    width: 100%;
+  }
 }
 
 .primary-button,

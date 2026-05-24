@@ -51,19 +51,21 @@
             <th>Estado</th>
             <th>Total</th>
             <th>Fecha</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for sale in sales %}
             <tr>
-              <td>#{{ sale.id }}</td>
+              <td><a class="text-link" href="{% url 'sale_detail' sale.id %}">#{{ sale.id }}</a></td>
               <td>{{ sale.customer.name|default:"Mostrador" }}</td>
               <td>{{ sale.get_status_display }}</td>
               <td>${{ sale.total }}</td>
               <td>{{ sale.created_at|date:"d/m/Y H:i" }}</td>
+              <td><a class="text-link" href="{% url 'sale_note' sale.id %}">Nota</a></td>
             </tr>
           {% empty %}
-            <tr><td colspan="5">Todavía no hay ventas.</td></tr>
+            <tr><td colspan="6">Todavía no hay ventas.</td></tr>
           {% endfor %}
         </tbody>
       </table>
