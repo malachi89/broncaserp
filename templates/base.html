@@ -47,9 +47,12 @@
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Proveedor{% else %}Acceso{% endif %}</p>
-          <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
+        <div class="topbar-title">
+          <button type="button" class="icon-button sidebar-toggle" id="sidebar-toggle" aria-label="Ocultar panel" aria-expanded="true">☰</button>
+          <div>
+            <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Proveedor{% else %}Acceso{% endif %}</p>
+            <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
+          </div>
         </div>
         {% if request.user.is_authenticated %}
           <form method="post" action="{% url 'logout' %}">
@@ -70,6 +73,42 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script>
+    (function () {
+      var shell = document.querySelector(".shell");
+      var toggle = document.getElementById("sidebar-toggle");
+      if (!shell || !toggle) return;
+
+      var storageKey = "broncaserp:sidebar-collapsed:v1";
+
+      function applyState(isCollapsed) {
+        shell.classList.toggle("sidebar-collapsed", isCollapsed);
+        toggle.setAttribute("aria-expanded", String(!isCollapsed));
+        toggle.setAttribute("aria-label", isCollapsed ? "Mostrar panel" : "Ocultar panel");
+        toggle.setAttribute("title", isCollapsed ? "Mostrar panel" : "Ocultar panel");
+      }
+
+      var savedState = false;
+      try {
+        savedState = window.localStorage.getItem(storageKey) === "1";
+      } catch (_error) {
+        savedState = false;
+      }
+      applyState(savedState);
+
+      toggle.addEventListener("click", function () {
+        var nextState = !shell.classList.contains("sidebar-collapsed");
+        applyState(nextState);
+        try {
+          if (nextState) {
+            window.localStorage.setItem(storageKey, "1");
+          } else {
+            window.localStorage.removeItem(storageKey);
+          }
+        } catch (_error) {}
+      });
+    })();
+  </script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("{% static 'service-worker.js' %}").catch(function () {});

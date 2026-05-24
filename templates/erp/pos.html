@@ -48,7 +48,6 @@
         >
           <strong>{{ product.name }}</strong>
           <span>${{ product.sale_price }}</span>
-          <small>{{ product.stock_quantity|compact_quantity }} {{ product.unit }}</small>
         </button>
       {% empty %}
         {% if query %}
@@ -58,20 +57,22 @@
     </div>
   </div>
 
-  <form method="post" class="panel pos-cart" id="pos-form" data-sale-saved="{{ sale_saved|yesno:'1,0' }}">
-    {% csrf_token %}
-    <input type="hidden" name="cart_json" id="cart-json">
+  <section class="panel pos-ticket">
     <div class="panel-header">
       <h2>Ticket</h2>
       <button type="button" class="ghost-button" id="clear-cart">Limpiar</button>
     </div>
-    <p class="helper-text">Puedes capturar precio manual por línea; si cambia del precio lista, el motivo es obligatorio y quedará marcado en la venta.</p>
     <div id="pos-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
     <div id="cart-lines" class="cart-lines"></div>
     <div class="cart-total">
       <span>Total</span>
       <strong id="cart-total">$0.00</strong>
     </div>
+  </section>
+
+  <form method="post" class="panel pos-payment" id="pos-form" data-sale-saved="{{ sale_saved|yesno:'1,0' }}">
+    {% csrf_token %}
+    <input type="hidden" name="cart_json" id="cart-json">
     <label>
       Método de pago
       <select name="payment_method" id="payment-method">
@@ -82,10 +83,6 @@
       </select>
     </label>
     <section id="cash-tender-section" class="cash-payment-block">
-      <div class="cash-tender-header">
-        <strong>Pago en efectivo</strong>
-        <span class="helper-text">Captura o suma billetes para calcular cambio.</span>
-      </div>
       <div class="cash-tender-row">
         <input
           type="number"
@@ -120,6 +117,9 @@
         <button type="button" class="bill-button bill-500" data-bill-amount="500">
           <span class="bill-icon">$</span>
           <span>$500</span>
+        </button>
+        <button type="button" class="bill-button bill-exact" data-bill-exact="1">
+          <span>Exacto</span>
         </button>
       </div>
       <div class="cash-change-summary">

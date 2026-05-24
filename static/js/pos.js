@@ -147,18 +147,7 @@
   }
 
   function syncStockFeedback() {
-    const oversoldLine = Array.from(cart.values()).find(({ product, quantity }) => quantity > product.stock);
-    if (oversoldLine) {
-      const { product } = oversoldLine;
-      showFeedback(
-        product.stock <= 0
-          ? product.name + " ya no tiene existencias. La venta se registrara de todos modos."
-          : product.name + " solo tiene " + product.stock + " en existencia. La venta se registrara de todos modos.",
-        "warn"
-      );
-      return;
-    }
-    clearFeedback();
+    // El POS permite vender con/ sin existencia; no mostrar advertencias de stock.
   }
 
   function updateCashTenderUI() {
@@ -348,6 +337,14 @@
 
   billButtons.forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.dataset.billExact === "1") {
+        setTenderedAmount(cartGrandTotal);
+        updateCashTenderUI();
+        if (tenderedAmountInput) {
+          tenderedAmountInput.focus();
+        }
+        return;
+      }
       const billAmount = parseAmount(button.dataset.billAmount);
       setTenderedAmount(readTenderedAmount() + billAmount);
       updateCashTenderUI();

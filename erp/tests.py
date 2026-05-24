@@ -550,6 +550,95 @@ class ErpDomainTests(TestCase):
         self.assertContains(response, "Método")
         self.assertContains(response, "Pendiente de pago")
         self.assertContains(response, "Crédito")
+        self.assertContains(response, 'name="q"', html=False)
+        self.assertContains(response, 'name="estado"', html=False)
+        self.assertContains(response, 'name="metodo"', html=False)
+
+    def test_sales_page_filters_by_status_and_method(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Filtros")
+        credit_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CREDIT,
+        )
+        paid_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(
+            reverse("sales"),
+            {
+                "estado": Sale.Status.CREDIT,
+                "metodo": SalePayment.Method.CREDIT,
+            },
+        )
+
+        self.assertContains(response, credit_sale.folio)
+        self.assertNotContains(response, paid_sale.folio)
+
+    def test_sales_page_filters_by_folio_with_unified_search(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Folio")
+        target_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+        )
+        other_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CARD,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("sales"), {"q": target_sale.folio})
+
+        self.assertContains(response, target_sale.folio)
+        self.assertNotContains(response, other_sale.folio)
+
+    def test_sales_page_orders_rows_by_selected_column(self):
+        customer_a = Customer.objects.create(business=self.business, name="Cliente B")
+        customer_b = Customer.objects.create(business=self.business, name="Cliente A")
+        first_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer_a.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+        )
+        second_sale = create_specialized_sale(
+            business=self.business,
+            user=self.user,
+            customer_id=customer_b.id,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(
+            reverse("sales"),
+            {
+                "q": "Cliente",
+                "sort": "cliente",
+                "dir": "asc",
+            },
+        )
+
+        content = response.content.decode("utf-8")
+        self.assertLess(content.find(second_sale.folio), content.find(first_sale.folio))
 
     def test_sales_page_does_not_load_list_without_query(self):
         customer = Customer.objects.create(business=self.business, name="Cliente Sin Lista")

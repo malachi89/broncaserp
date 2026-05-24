@@ -301,23 +301,96 @@ def clients(request):
 @module_access_required("can_access_sales_effective")
 def sales(request):
     business = request.business
-    query = request.GET.get("q", "").strip()
-    sales_list = Sale.objects.none()
-    if query:
-        filters = (
-            Q(customer__name__icontains=query)
-            | Q(status__icontains=query)
-            | Q(payments__method__icontains=query)
-        )
-        if query.upper().startswith("VT-"):
-            numeric_part = query.split("-", 1)[1].lstrip("0")
-            if numeric_part.isdigit():
-                filters |= Q(id=int(numeric_part))
-        elif query.isdigit():
-            filters |= Q(id=int(query))
+    search_query = request.GET.get("q", "").strip()
+    legacy_folio_query = request.GET.get("folio", "").strip()
+    legacy_customer_query = request.GET.get("cliente", "").strip()
+    status_filter = request.GET.get("estado", "").strip()
+    method_filter = request.GET.get("metodo", "").strip()
+    sort = request.GET.get("sort", "fecha").strip().lower()
+    sort_dir = request.GET.get("dir", "desc").strip().lower()
 
-        sales_list = specialized_sales_queryset(business).filter(filters).distinct()[:80]
-    return render(request, "erp/sales.html", {"sales": sales_list, "query": query})
+    status_choices = Sale.Status.choices
+    method_choices = SalePayment.Method.choices
+    valid_statuses = {value for value, _label in status_choices}
+    valid_methods = {value for value, _label in method_choices}
+    if status_filter not in valid_statuses:
+        status_filter = ""
+    if method_filter not in valid_methods:
+        method_filter = ""
+
+    sort_field_map = {
+        "folio": "id",
+        "cliente": "customer__name",
+        "estado": "status",
+        "metodo": "payments__method",
+        "total": "total",
+        "fecha": "created_at",
+    }
+    if sort not in sort_field_map:
+        sort = "fecha"
+    if sort_dir not in {"asc", "desc"}:
+        sort_dir = "desc"
+
+    has_filters = bool(search_query or legacy_folio_query or legacy_customer_query or status_filter or method_filter)
+    sales_list = Sale.objects.none()
+    if has_filters:
+        queryset = specialized_sales_queryset(business)
+        if search_query:
+            filters = (
+                Q(customer__name__icontains=search_query)
+            )
+            if search_query.upper().startswith("VT-"):
+                numeric_part = search_query.split("-", 1)[1].lstrip("0")
+                if numeric_part.isdigit():
+                    filters |= Q(id=int(numeric_part))
+            elif search_query.isdigit():
+                filters |= Q(id=int(search_query))
+            queryset = queryset.filter(filters)
+        else:
+            if legacy_folio_query:
+                folio_digits = "".join(character for character in legacy_folio_query if character.isdigit())
+                if folio_digits:
+                    queryset = queryset.filter(id=int(folio_digits))
+                else:
+                    queryset = queryset.none()
+            if legacy_customer_query:
+                queryset = queryset.filter(customer__name__icontains=legacy_customer_query)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if method_filter:
+            queryset = queryset.filter(payments__method=method_filter)
+
+        order_field = sort_field_map[sort]
+        if sort_dir == "desc":
+            order_field = f"-{order_field}"
+        sales_list = queryset.order_by(order_field, "-id").distinct()[:80]
+
+    def next_sort_dir(column):
+        if sort == column and sort_dir == "asc":
+            return "desc"
+        return "asc"
+
+    return render(
+        request,
+        "erp/sales.html",
+        {
+            "sales": sales_list,
+            "has_filters": has_filters,
+            "search_query": search_query,
+            "status_filter": status_filter,
+            "method_filter": method_filter,
+            "status_choices": status_choices,
+            "method_choices": method_choices,
+            "sort": sort,
+            "sort_dir": sort_dir,
+            "next_dir_folio": next_sort_dir("folio"),
+            "next_dir_cliente": next_sort_dir("cliente"),
+            "next_dir_estado": next_sort_dir("estado"),
+            "next_dir_metodo": next_sort_dir("metodo"),
+            "next_dir_total": next_sort_dir("total"),
+            "next_dir_fecha": next_sort_dir("fecha"),
+        },
+    )
 
 
 @tenant_required

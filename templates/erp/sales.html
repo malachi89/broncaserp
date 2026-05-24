@@ -11,11 +11,25 @@
     </div>
     <a class="small-button" href="{% url 'new_sale' %}">Crear venta</a>
   </div>
-  <form method="get" class="inline-search">
-    <input name="q" value="{{ query }}" placeholder="Buscar por folio, cliente, estado o método">
+  <form method="get" class="inline-search sales-filters">
+    <input class="search-input sales-search-input" name="q" value="{{ search_query }}" placeholder="Buscar por folio o cliente">
+    <select class="sales-filter-input" name="estado">
+      <option value="">Todos los estados</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select class="sales-filter-input" name="metodo">
+      <option value="">Todos los métodos</option>
+      {% for value, label in method_choices %}
+        <option value="{{ value }}" {% if method_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ sort_dir }}">
     <button class="small-button" type="submit">Buscar</button>
   </form>
-  {% if not query %}
+  {% if not has_filters %}
     <p class="helper-text">Busca ventas para listarlas. No se cargan todas al abrir.</p>
   {% endif %}
 
@@ -23,12 +37,36 @@
     <table>
       <thead>
         <tr>
-          <th>Folio</th>
-          <th>Cliente</th>
-          <th>Estado</th>
-          <th>Método</th>
-          <th>Total</th>
-          <th>Fecha</th>
+          <th>
+            <a class="sort-link {% if sort == 'folio' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=folio&dir={{ next_dir_folio }}">
+              Folio {% if sort == "folio" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
+          <th>
+            <a class="sort-link {% if sort == 'cliente' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=cliente&dir={{ next_dir_cliente }}">
+              Cliente {% if sort == "cliente" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
+          <th>
+            <a class="sort-link {% if sort == 'estado' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=estado&dir={{ next_dir_estado }}">
+              Estado {% if sort == "estado" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
+          <th>
+            <a class="sort-link {% if sort == 'metodo' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=metodo&dir={{ next_dir_metodo }}">
+              Método {% if sort == "metodo" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
+          <th>
+            <a class="sort-link {% if sort == 'total' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=total&dir={{ next_dir_total }}">
+              Total {% if sort == "total" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
+          <th>
+            <a class="sort-link {% if sort == 'fecha' %}active{% endif %}" href="?q={{ search_query|urlencode }}&estado={{ status_filter|urlencode }}&metodo={{ method_filter|urlencode }}&sort=fecha&dir={{ next_dir_fecha }}">
+              Fecha {% if sort == "fecha" %}<span class="sort-indicator">{% if sort_dir == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}
+            </a>
+          </th>
           <th>Documentos</th>
         </tr>
       </thead>
@@ -46,8 +84,8 @@
             </td>
           </tr>
         {% empty %}
-          {% if query %}
-            <tr><td colspan="7">Sin resultados para "{{ query }}".</td></tr>
+          {% if has_filters %}
+            <tr><td colspan="7">Sin resultados con los filtros seleccionados.</td></tr>
           {% else %}
             <tr><td colspan="7">Escribe una búsqueda para ver ventas.</td></tr>
           {% endif %}
