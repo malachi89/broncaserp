@@ -56,6 +56,7 @@ label {
 
 .shell {
   --sidebar-width: 240px;
+  --sidebar-collapsed-width: 56px;
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -63,7 +64,7 @@ label {
 }
 
 .shell.sidebar-collapsed {
-  --sidebar-width: 0px;
+  --sidebar-width: var(--sidebar-collapsed-width);
 }
 
 .sidebar {
@@ -73,14 +74,23 @@ label {
   padding: 1rem;
   background: #101828;
   color: #eef4ff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   overflow: hidden;
   transition: padding 0.2s ease, opacity 0.2s ease;
 }
 
 .shell.sidebar-collapsed .sidebar {
-  padding: 0;
-  opacity: 0;
-  pointer-events: none;
+  padding: 0.75rem 0.5rem;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .brand {
@@ -107,6 +117,16 @@ label {
 
 .brand small {
   color: #bac7db;
+}
+
+.shell.sidebar-collapsed .brand,
+.shell.sidebar-collapsed .nav {
+  display: none;
+}
+
+.shell.sidebar-collapsed .sidebar-header {
+  justify-content: center;
+  margin-bottom: 0;
 }
 
 .nav {
@@ -150,6 +170,15 @@ label {
   min-height: 40px;
   padding: 0.45rem 0.65rem;
   font-size: 1rem;
+}
+
+.sidebar .sidebar-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.sidebar .sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .eyebrow {
@@ -1021,10 +1050,6 @@ th {
 @media (max-width: 980px) {
   .shell {
     grid-template-columns: 1fr;
-  }
-
-  .shell.sidebar-collapsed .sidebar {
-    display: none;
   }
 
   .sidebar {

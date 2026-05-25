@@ -15,13 +15,16 @@
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
-        <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
-        <span>
-          <strong>El Broncas</strong>
-          <small>ERP</small>
-        </span>
-      </a>
+      <div class="sidebar-header">
+        <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
+          <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
+          <span>
+            <strong>El Broncas</strong>
+            <small>ERP</small>
+          </span>
+        </a>
+        <button type="button" class="icon-button sidebar-toggle" id="sidebar-toggle" aria-label="Ocultar panel" aria-expanded="true">☰</button>
+      </div>
 
       {% if request.user.is_authenticated %}
         {% if request.user.is_superuser %}
@@ -48,7 +51,6 @@
     <main class="main">
       <header class="topbar">
         <div class="topbar-title">
-          <button type="button" class="icon-button sidebar-toggle" id="sidebar-toggle" aria-label="Ocultar panel" aria-expanded="true">☰</button>
           <div>
             <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Proveedor{% else %}Acceso{% endif %}</p>
             <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
