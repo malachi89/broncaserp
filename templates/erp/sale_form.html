@@ -9,7 +9,6 @@
     <div class="panel-header">
       <div>
         <h2>Productos</h2>
-        <p class="helper-text">Agrega artículos para esta venta especializada.</p>
       </div>
       <a class="ghost-button" href="{% url 'sales' %}">Volver</a>
     </div>
@@ -25,9 +24,6 @@
       >
       <button class="small-button" type="submit">Buscar</button>
     </form>
-    {% if not query %}
-      <p class="helper-text">Busca productos para cargarlos. No se listan todos por rendimiento.</p>
-    {% endif %}
     <div class="product-grid" id="sale-product-grid">
       {% for product in products %}
         <button

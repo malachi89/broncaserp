@@ -7,7 +7,6 @@
   <div class="panel-header">
     <div>
       <h2>Ventas especializadas</h2>
-      <p class="helper-text">Ventas a cartera con envío, descuentos y nota de venta.</p>
     </div>
     <a class="small-button" href="{% url 'new_sale' %}">Crear venta</a>
   </div>
@@ -29,9 +28,6 @@
     <input type="hidden" name="dir" value="{{ sort_dir }}">
     <button class="small-button" type="submit">Buscar</button>
   </form>
-  {% if not has_filters %}
-    <p class="helper-text">Busca ventas para listarlas. No se cargan todas al abrir.</p>
-  {% endif %}
 
   <div class="table-wrap">
     <table>
@@ -83,13 +79,11 @@
               <a class="text-link" href="{% url 'sale_note' sale.id %}">Nota</a>
             </td>
           </tr>
-        {% empty %}
-          {% if has_filters %}
-            <tr><td colspan="7">Sin resultados con los filtros seleccionados.</td></tr>
-          {% else %}
-            <tr><td colspan="7">Escribe una búsqueda para ver ventas.</td></tr>
-          {% endif %}
-        {% endfor %}
+      {% empty %}
+        {% if has_filters %}
+          <tr><td colspan="7">Sin resultados con los filtros seleccionados.</td></tr>
+        {% endif %}
+      {% endfor %}
       </tbody>
     </table>
   </div>

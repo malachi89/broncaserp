@@ -154,10 +154,9 @@ label {
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 0.6rem;
+  justify-content: center;
   font-weight: 800;
-  text-align: left;
+  text-align: center;
 }
 
 .sidebar-logout-button:hover {

@@ -7,7 +7,6 @@
   <form method="post" class="panel compact-form">
     {% csrf_token %}
     <div class="panel-header"><h2>Nuevo cliente</h2></div>
-    <p class="helper-text">También puedes administrar la cartera comercial desde <a class="text-link" href="{% url 'clients' %}">Clientes</a>. Límite 0 significa crédito sin límite.</p>
     {{ form.as_p }}
     <button class="primary-button" type="submit">Guardar cliente</button>
   </form>
@@ -20,9 +19,6 @@
         <button class="small-button" type="submit">Buscar</button>
       </form>
     </div>
-    {% if not query %}
-      <p class="helper-text">Escribe una búsqueda para ver clientes con crédito.</p>
-    {% endif %}
     <div class="table-wrap">
       <table class="credits-table">
         <thead>

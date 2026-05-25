@@ -15,7 +15,6 @@
         <a class="ghost-button" href="{% url 'clients' %}">Cancelar</a>
       {% endif %}
     </div>
-    <p class="helper-text">Límite 0 significa crédito sin límite.</p>
     {{ form.as_p }}
     <button class="primary-button" type="submit">{% if editing_customer %}Actualizar cliente{% else %}Guardar cliente{% endif %}</button>
   </form>
@@ -29,9 +28,6 @@
       <input name="q" value="{{ query }}" placeholder="Buscar por cliente, contacto, RFC o teléfono">
       <button class="small-button" type="submit">Buscar</button>
     </form>
-    {% if not query and not editing_customer %}
-      <p class="helper-text">Busca clientes para listarlos. No se carga la cartera completa al abrir.</p>
-    {% endif %}
     <div class="table-wrap">
       <table>
         <thead>
@@ -65,8 +61,6 @@
               <tr><td colspan="6">Sin resultados para "{{ query }}".</td></tr>
             {% elif editing_customer %}
               <tr><td colspan="6">Mostrando solo el cliente en edición.</td></tr>
-            {% else %}
-              <tr><td colspan="6">Escribe una búsqueda para ver clientes.</td></tr>
             {% endif %}
           {% endfor %}
         </tbody>

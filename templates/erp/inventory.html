@@ -20,9 +20,6 @@
         <button class="small-button" type="submit">Buscar</button>
       </form>
     </div>
-    {% if not query %}
-      <p class="helper-text">Busca productos para listarlos. No se carga inventario completo al abrir.</p>
-    {% endif %}
     <div class="table-wrap">
       <table>
         <thead>
@@ -54,8 +51,6 @@
           {% empty %}
             {% if query %}
               <tr><td colspan="5">Sin resultados para "{{ query }}".</td></tr>
-            {% else %}
-              <tr><td colspan="5">Escribe una búsqueda para ver productos.</td></tr>
             {% endif %}
           {% endfor %}
         </tbody>

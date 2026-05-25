@@ -48,20 +48,17 @@
         <label class="check-option">{{ create_user_form.is_active }} <span>Activo</span></label>
       </div>
 
-      <p class="helper-text">Si marcas Administrador, el sistema le dará acceso completo a todos los módulos.</p>
       <button class="primary-button" type="submit">Crear usuario</button>
     </form>
   {% else %}
     <section class="panel compact-form">
       <div class="panel-header"><h2>Usuarios</h2></div>
-      <p class="helper-text">Solo los usuarios propietarios o administradores pueden crear y editar accesos.</p>
     </section>
   {% endif %}
 
   <section class="panel">
     <div class="panel-header">
       <h2>Usuarios del negocio</h2>
-      <p class="helper-text">Listado compacto con privilegios y acciones rápidas.</p>
     </div>
     <div class="table-wrap">
       <table class="membership-table">
