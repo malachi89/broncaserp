@@ -23,6 +23,7 @@ urlpatterns = [
     path("caja/cerrar/", views.close_cash, name="close_cash"),
     path("caja/movimiento/", views.cash_movement, name="cash_movement"),
     path("reportes/", views.reports, name="reports"),
+    path("cambiar-contrasena/", views.password_change, name="password_change"),
     path("configuracion/", views.settings_view, name="settings"),
     path("proveedor/", views.provider_dashboard, name="provider_dashboard"),
     path("proveedor/clientes/", views.provider_businesses, name="provider_businesses"),

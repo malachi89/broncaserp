@@ -160,6 +160,22 @@ class BusinessMembership(TimeStampedModel):
         return self.is_active and (self.has_full_access or self.can_access_reports)
 
     @property
+    def preferred_landing_url_name(self):
+        if self.can_manage_users:
+            return "dashboard"
+        if self.can_access_pos_effective:
+            return "pos"
+        if self.can_access_sales_effective:
+            return "sales"
+        if self.can_access_inventory_effective:
+            return "inventory"
+        if self.can_access_credits_effective:
+            return "credits"
+        if self.can_access_cash_effective:
+            return "cash"
+        return "dashboard"
+
+    @property
     def access_labels(self):
         if self.is_owner:
             return ["Todos", "Propietario"]
@@ -177,8 +193,6 @@ class BusinessMembership(TimeStampedModel):
             labels.append("Ventas")
         if self.can_access_cash:
             labels.append("Caja")
-        if self.can_access_reports:
-            labels.append("Reportes")
         return labels or ["Sin acceso"]
 
     def save(self, *args, **kwargs):
@@ -197,6 +211,22 @@ class BusinessMembership(TimeStampedModel):
             can_access_reports=self.can_access_reports,
         )
         super().save(*args, **kwargs)
+
+
+class UserSecurity(TimeStampedModel):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="password_security")
+    must_change_password = models.BooleanField(default=False)
+    password_expired_at = models.DateTimeField(null=True, blank=True)
+
+    def expire_password(self):
+        self.must_change_password = True
+        self.password_expired_at = timezone.now()
+        self.save(update_fields=["must_change_password", "password_expired_at", "updated_at"])
+
+    def clear_password_expiry(self):
+        self.must_change_password = False
+        self.password_expired_at = None
+        self.save(update_fields=["must_change_password", "password_expired_at", "updated_at"])
 
 
 class ProviderPayment(TimeStampedModel):

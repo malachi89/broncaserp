@@ -16,7 +16,7 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% else %}{% url 'dashboard' %}{% endif %}">
+        <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% elif current_membership %}{% url current_membership.preferred_landing_url_name %}{% else %}{% url 'dashboard' %}{% endif %}">
           <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
           <span>
             <strong>El Broncas</strong>
@@ -35,16 +35,24 @@
           </nav>
         {% else %}
           <nav class="nav">
-            <a href="{% url 'dashboard' %}">Dashboard</a>
-            {% if current_membership.can_access_pos_effective %}<a href="{% url 'pos' %}">Punto de Venta</a>{% endif %}
-            {% if current_membership.can_access_inventory_effective %}<a href="{% url 'inventory' %}">Inventario</a>{% endif %}
-            {% if current_membership.can_access_sales_effective %}<a href="{% url 'sales' %}">Ventas</a>{% endif %}
-            {% if current_membership.can_access_sales_effective %}<a href="{% url 'clients' %}">Clientes</a>{% endif %}
-            {% if current_membership.can_access_credits_effective %}<a href="{% url 'credits' %}">Créditos</a>{% endif %}
-            {% if current_membership.can_access_cash_effective %}<a href="{% url 'cash' %}">Caja</a>{% endif %}
-            <a href="{% url 'settings' %}">Configuración</a>
+            {% if current_membership and current_membership.can_manage_users %}<a href="{% url 'dashboard' %}">Dashboard</a>{% endif %}
+            {% if current_membership and current_membership.can_access_pos_effective %}<a href="{% url 'pos' %}">Punto de Venta</a>{% endif %}
+            {% if current_membership and current_membership.can_access_inventory_effective %}<a href="{% url 'inventory' %}">Inventario</a>{% endif %}
+            {% if current_membership and current_membership.can_access_sales_effective %}<a href="{% url 'sales' %}">Ventas</a>{% endif %}
+            {% if current_membership and current_membership.can_access_sales_effective %}<a href="{% url 'clients' %}">Clientes</a>{% endif %}
+            {% if current_membership and current_membership.can_access_credits_effective %}<a href="{% url 'credits' %}">Créditos</a>{% endif %}
+            {% if current_membership and current_membership.can_access_cash_effective %}<a href="{% url 'cash' %}">Caja</a>{% endif %}
+            {% if current_membership and current_membership.can_manage_users %}<a href="{% url 'settings' %}">Configuración</a>{% endif %}
           </nav>
         {% endif %}
+        <div class="sidebar-footer">
+          <form method="post" action="{% url 'logout' %}" class="sidebar-logout-form">
+            {% csrf_token %}
+            <button class="sidebar-logout-button" type="submit" title="Cerrar sesión" aria-label="Cerrar sesión">
+              <span>Cerrar sesión</span>
+            </button>
+          </form>
+        </div>
       {% endif %}
     </aside>
 
@@ -56,12 +64,6 @@
             <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
           </div>
         </div>
-        {% if request.user.is_authenticated %}
-          <form method="post" action="{% url 'logout' %}">
-            {% csrf_token %}
-            <button class="icon-button" title="Salir" aria-label="Salir">Salir</button>
-          </form>
-        {% endif %}
       </header>
 
       {% if messages %}

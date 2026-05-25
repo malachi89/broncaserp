@@ -17,7 +17,7 @@ class CurrentTenantMiddleware:
             memberships = (
                 BusinessMembership.objects.select_related("business")
                 .filter(user=request.user, is_active=True)
-                .order_by("created_at")
+                .order_by("-created_at", "-id")
             )
             business_id = request.session.get("business_id")
             membership = memberships.filter(business_id=business_id).first()
@@ -29,8 +29,10 @@ class CurrentTenantMiddleware:
             if membership:
                 request.business = membership.business
                 request.membership = membership
-            elif not request.path.startswith(("/logout/", "/admin/")):
+            must_change_password = getattr(getattr(request.user, "password_security", None), "must_change_password", False)
+            if must_change_password and not request.path.startswith(("/logout/", "/admin/", "/cambiar-contrasena/")):
+                return redirect("password_change")
+            elif not membership and not request.path.startswith(("/logout/", "/admin/", "/cambiar-contrasena/")):
                 return redirect("no_business")
 
         return self.get_response(request)
-

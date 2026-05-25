@@ -45,7 +45,6 @@
         <label class="check-option">{{ create_user_form.can_access_sales }} <span>Ventas</span></label>
         <label class="check-option">{{ create_user_form.can_access_credits }} <span>Créditos</span></label>
         <label class="check-option">{{ create_user_form.can_access_cash }} <span>Caja</span></label>
-        <label class="check-option">{{ create_user_form.can_access_reports }} <span>Reportes</span></label>
         <label class="check-option">{{ create_user_form.is_active }} <span>Activo</span></label>
       </div>
 
@@ -60,50 +59,95 @@
   {% endif %}
 
   <section class="panel">
-    <div class="panel-header"><h2>Usuarios del negocio</h2></div>
-    <div class="membership-list">
-      {% for row in membership_rows %}
-        <article class="membership-card">
-          <div class="membership-summary">
-            <div>
-              <strong>{{ row.membership.user.username }}</strong>
-              <p class="helper-text">{{ row.membership.user.email|default:"Sin correo" }}</p>
-            </div>
-            <div class="badge-row">
-              {% for label in row.membership.access_labels %}
-                <span class="status-pill {% if label == 'Propietario' or label == 'Administrador' or label == 'Todos' %}good{% else %}warn{% endif %}">{{ label }}</span>
-              {% endfor %}
-              {% if not row.membership.is_active %}
-                <span class="status-pill">Inactivo</span>
-              {% endif %}
-            </div>
-          </div>
+    <div class="panel-header">
+      <h2>Usuarios del negocio</h2>
+      <p class="helper-text">Listado compacto con privilegios y acciones rápidas.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="membership-table">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Privilegios</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in membership_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.membership.user.username }}</strong>
+                <div class="helper-text">{{ row.membership.user.email|default:"Sin correo" }}</div>
+              </td>
+              <td>
+                <div class="badge-row badge-row-left">
+                  {% for label in row.membership.access_labels %}
+                    <span class="status-pill {% if label == 'Propietario' or label == 'Administrador' or label == 'Todos' %}good{% else %}warn{% endif %}">{{ label }}</span>
+                  {% endfor %}
+                </div>
+              </td>
+              <td>
+                <div class="badge-row badge-row-left">
+                  {% if row.must_change_password %}
+                    <span class="status-pill bad">Caducada</span>
+                  {% endif %}
+                  {% if row.membership.is_active %}
+                    <span class="status-pill good">Activo</span>
+                  {% else %}
+                    <span class="status-pill">Inactivo</span>
+                  {% endif %}
+                  {% if row.membership.is_owner %}
+                    <span class="status-pill good">Propietario</span>
+                  {% elif row.membership.is_admin %}
+                    <span class="status-pill good">Administrador</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td>
+                <div class="action-row membership-action-row">
+                  {% if row.editable %}
+                    <details class="membership-details">
+                      <summary class="ghost-button">Editar</summary>
+                      <form method="post" class="membership-edit-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update_membership">
+                        <input type="hidden" name="membership_id" value="{{ row.membership.id }}">
+                        {{ row.form.non_field_errors }}
+                        <div class="permission-grid membership-permission-grid">
+                          <label class="check-option compact-check">{{ row.form.is_admin }} <span>Administrador</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_pos }} <span>Punto de Venta</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_inventory }} <span>Inventario</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_sales }} <span>Ventas</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_credits }} <span>Créditos</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_cash }} <span>Caja</span></label>
+                          <label class="check-option compact-check">{{ row.form.is_active }} <span>Activo</span></label>
+                        </div>
+                        <button class="small-button" type="submit">Guardar</button>
+                      </form>
+                    </details>
+                  {% elif row.membership.is_owner %}
+                    <span class="helper-text">Propietario</span>
+                  {% endif %}
 
-          {% if row.editable %}
-            <form method="post" class="compact-form">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_membership">
-              <input type="hidden" name="membership_id" value="{{ row.membership.id }}">
-              {{ row.form.non_field_errors }}
-              <div class="permission-grid">
-                <label class="check-option">{{ row.form.is_admin }} <span>Administrador</span></label>
-                <label class="check-option">{{ row.form.can_access_pos }} <span>Punto de Venta</span></label>
-                <label class="check-option">{{ row.form.can_access_inventory }} <span>Inventario</span></label>
-                <label class="check-option">{{ row.form.can_access_sales }} <span>Ventas</span></label>
-                <label class="check-option">{{ row.form.can_access_credits }} <span>Créditos</span></label>
-                <label class="check-option">{{ row.form.can_access_cash }} <span>Caja</span></label>
-                <label class="check-option">{{ row.form.can_access_reports }} <span>Reportes</span></label>
-                <label class="check-option">{{ row.form.is_active }} <span>Activo</span></label>
-              </div>
-              <button class="small-button" type="submit">Guardar accesos</button>
-            </form>
-          {% elif row.membership.is_owner %}
-            <p class="helper-text">El usuario propietario conserva acceso total y no se edita desde esta pantalla.</p>
-          {% endif %}
-        </article>
-      {% empty %}
-        <p class="helper-text">Todavía no hay usuarios asociados a este negocio.</p>
-      {% endfor %}
+                  {% if can_manage_users %}
+                    <form method="post" class="inline-form membership-inline-action">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="expire_password">
+                      <input type="hidden" name="membership_id" value="{{ row.membership.id }}">
+                      <button class="small-button danger-button" type="submit">Caducar</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4"><p class="helper-text">Todavía no hay usuarios asociados a este negocio.</p></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </section>
 </section>

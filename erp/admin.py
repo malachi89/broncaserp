@@ -18,6 +18,7 @@ from .models import (
     Sale,
     SaleItem,
     SalePayment,
+    UserSecurity,
 )
 
 
@@ -56,3 +57,4 @@ admin.site.register(SalePayment)
 admin.site.register(CreditAccount)
 admin.site.register(CreditTransaction)
 admin.site.register(AuditLog)
+admin.site.register(UserSecurity)

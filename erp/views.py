@@ -4,6 +4,8 @@ from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum
@@ -19,6 +21,7 @@ from .models import (
     BusinessMembership,
     CashMovement,
     CashSession,
+    AuditLog,
     CreditAccount,
     Customer,
     InventoryMovement,
@@ -27,6 +30,7 @@ from .models import (
     ProviderPayment,
     Sale,
     SalePayment,
+    UserSecurity,
 )
 from .services import (
     adjust_inventory,
@@ -74,7 +78,7 @@ def module_access_required(permission_attr, denied_message="No tienes acceso a e
     return decorator
 
 
-def can_open_cash_from_request(request):
+def can_manage_cash_from_request(request):
     membership = getattr(request, "membership", None)
     return bool(
         membership
@@ -87,9 +91,16 @@ def can_open_cash_from_request(request):
     )
 
 
+def preferred_landing_url_name(membership):
+    if not membership:
+        return "dashboard"
+    return membership.preferred_landing_url_name
+
+
 def build_membership_rows(request, memberships, can_manage_users, bound_form=None):
     rows = []
     for membership in memberships:
+        password_security = getattr(membership.user, "password_security", None)
         form = None
         if can_manage_users and not membership.is_owner:
             if bound_form is not None and bound_form.instance.pk == membership.pk:
@@ -105,6 +116,7 @@ def build_membership_rows(request, memberships, can_manage_users, bound_form=Non
                 "membership": membership,
                 "form": form,
                 "editable": form is not None,
+                "must_change_password": bool(password_security and password_security.must_change_password),
             }
         )
     return rows
@@ -115,8 +127,36 @@ def no_business(request):
     return render(request, "erp/no_business.html")
 
 
+@login_required
+def password_change(request):
+    form = PasswordChangeForm(user=request.user, data=request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        active_business_id = request.session.get("business_id")
+        form.save()
+        update_session_auth_hash(request, request.user)
+        if active_business_id:
+            request.session["business_id"] = active_business_id
+        user_security, _created = UserSecurity.objects.get_or_create(user=request.user)
+        user_security.clear_password_expiry()
+        AuditLog.objects.create(
+            business=getattr(request, "business", None),
+            actor=request.user,
+            action="user.password_changed",
+            object_type="User",
+            object_id=str(request.user.id),
+            detail={"username": request.user.username},
+        )
+        messages.success(request, "Contraseña actualizada.")
+        return redirect(preferred_landing_url_name(getattr(request, "membership", None)))
+
+    return render(request, "registration/password_change.html", {"form": form})
+
+
 @tenant_required
 def dashboard(request):
+    if not request.membership.can_manage_users:
+        return redirect(preferred_landing_url_name(request.membership))
+
     business = request.business
     today = timezone.localdate()
     suggested_start = today.replace(day=1)
@@ -642,7 +682,7 @@ def cash(request):
 @tenant_required
 @require_POST
 def open_cash(request):
-    if not can_open_cash_from_request(request):
+    if not can_manage_cash_from_request(request):
         messages.error(request, "No tienes acceso a este módulo.")
         return redirect("dashboard")
     try:
@@ -657,19 +697,27 @@ def open_cash(request):
 
 
 @tenant_required
-@module_access_required("can_access_cash_effective")
 @require_POST
 def close_cash(request):
+    if not can_manage_cash_from_request(request):
+        messages.error(request, "No tienes acceso a este módulo.")
+        return redirect("dashboard")
+
     session = current_cash_session(request.business, request.user)
+    next_url = request.POST.get("next") or reverse("cash")
+    if next_url not in {reverse("cash"), reverse("pos")}:
+        next_url = reverse("cash")
+
     if not session:
         messages.error(request, "No hay caja abierta.")
-        return redirect("cash")
+        return redirect(next_url)
+
     try:
         close_cash_session(session, request.user, request.POST.get("closing_amount", "0"))
         messages.success(request, "Caja cerrada.")
     except ValidationError as exc:
         messages.error(request, exc.messages[0])
-    return redirect("cash")
+    return redirect(next_url)
 
 
 @tenant_required
@@ -701,7 +749,10 @@ def reports(request):
 @tenant_required
 def settings_view(request):
     can_manage_users = request.membership.can_manage_users
-    memberships = request.business.memberships.select_related("user").order_by("-is_owner", "-is_admin", "user__username")
+    if not can_manage_users:
+        return redirect(preferred_landing_url_name(request.membership))
+
+    memberships = request.business.memberships.select_related("user", "user__password_security").order_by("-is_owner", "-is_admin", "user__username")
     create_user_form = TenantUserForm(business=request.business, prefix="create")
     membership_form = None
     action = ""
@@ -718,6 +769,27 @@ def settings_view(request):
                 membership = create_user_form.save()
                 messages.success(request, f"Usuario {membership.user.username} agregado al negocio.")
                 return redirect("settings")
+        elif action == "expire_password":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user", "user__password_security"),
+                pk=request.POST.get("membership_id"),
+                business=request.business,
+            )
+            user_security, _created = UserSecurity.objects.get_or_create(user=membership.user)
+            user_security.expire_password()
+            AuditLog.objects.create(
+                business=request.business,
+                actor=request.user,
+                action="user.password_expired",
+                object_type="User",
+                object_id=str(membership.user.id),
+                detail={
+                    "membership_id": membership.id,
+                    "username": membership.user.username,
+                },
+            )
+            messages.success(request, f"La contraseña de {membership.user.username} fue caducada.")
+            return redirect("settings")
         elif action == "update_membership":
             membership = get_object_or_404(
                 BusinessMembership.objects.select_related("user"),

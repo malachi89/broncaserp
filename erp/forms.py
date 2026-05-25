@@ -208,9 +208,13 @@ class TenantUserForm(forms.Form):
                 email=email,
                 password=password,
             )
-        elif email and not user.email:
-            user.email = email
-            user.save(update_fields=["email"])
+        else:
+            if email and not user.email:
+                user.email = email
+                user.save(update_fields=["email"])
+            if password:
+                user.set_password(password)
+                user.save(update_fields=["password"])
 
         membership = BusinessMembership.objects.create(
             business=self.business,

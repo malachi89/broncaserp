@@ -13,7 +13,25 @@
     <div class="panel-header">
       <h2>Productos</h2>
       {% if cash_session %}
-        <span class="status-pill good">Caja abierta</span>
+        <div class="cash-session-inline">
+          <span class="status-pill good">Caja abierta</span>
+          <details class="cash-close-details">
+            <summary class="icon-button" aria-label="Cerrar caja" title="Cerrar caja">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 4.5h11a2.5 2.5 0 0 1 2.5 2.5v10.5a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5V7A2.5 2.5 0 0 1 6 4.5Zm0 2A.5.5 0 0 0 5.5 7v1h13V7a.5.5 0 0 0-.5-.5H6Zm12.5 3H5.5v7.5A.5.5 0 0 0 6 17h11a.5.5 0 0 0 .5-.5V9.5ZM8 11h3v2H8v-2Zm4 0h2v2h-2v-2Zm-4 3h2v1.5H8V14Zm3 0h3v1.5h-3V14Zm5.75-6.75 2.25-2.25 1.4 1.4-4.65 4.65-4.65-4.65 1.4-1.4 2.25 2.25V7.5h1.5v3.25Z"/>
+              </svg>
+            </summary>
+            <form method="post" action="{% url 'close_cash' %}" class="cash-close-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{% url 'pos' %}">
+              <label>
+                Monto contado
+                <input name="closing_amount" type="number" step="0.01" min="0" value="0.00" inputmode="decimal">
+              </label>
+              <button class="small-button" type="submit">Cerrar</button>
+            </form>
+          </details>
+        </div>
       {% else %}
         <span class="status-pill warn">Sin caja · fuera de corte</span>
       {% endif %}
@@ -28,7 +46,6 @@
         </label>
         <button class="primary-button" type="submit">Abrir caja</button>
       </form>
-      <p class="helper-text">Abre la caja desde aquí sin entrar al módulo de Caja.</p>
     {% endif %}
     <form method="get" class="inline-search">
       <input
@@ -43,9 +60,6 @@
       >
       <button class="small-button" type="submit">Buscar</button>
     </form>
-    {% if not query %}
-      <p class="helper-text">Busca productos para cargarlos. No se listan todos por rendimiento.</p>
-    {% endif %}
     <div class="product-grid" id="product-grid">
       {% for product in products %}
         <button

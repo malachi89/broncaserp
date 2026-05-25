@@ -20,6 +20,7 @@ from .models import (
     Product,
     Sale,
     SalePayment,
+    UserSecurity,
 )
 from .services import cancel_sale, create_pos_sale, create_specialized_sale, record_credit_payment
 from .templatetags.erp_extras import compact_quantity
@@ -501,13 +502,33 @@ class ErpDomainTests(TestCase):
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
 
+        client.post(
+            reverse("open_cash"),
+            {
+                "opening_amount": "10.00",
+                "next": reverse("pos"),
+            },
+            follow=True,
+        )
+
         response = client.get(reverse("pos"))
 
         self.assertContains(response, 'id="pos-feedback"', html=False)
+        self.assertContains(response, 'aria-label="Cerrar caja"', html=False)
         self.assertNotContains(response, 'id="customer-id"', html=False)
         self.assertNotContains(response, "Últimos tickets")
         self.assertNotContains(response, "Selecciona cliente")
         self.assertNotContains(response, 'value="credit"', html=False)
+
+    def test_sidebar_logout_button_is_in_sidebar_with_clear_label(self):
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(reverse("pos"))
+
+        self.assertContains(response, "Cerrar sesión")
+        self.assertNotContains(response, ">Salir<", html=False)
+        self.assertContains(response, 'class="sidebar-logout-button"', html=False)
 
     def test_dashboard_requires_manual_queries(self):
         client = Client()
@@ -597,6 +618,40 @@ class ErpDomainTests(TestCase):
         self.assertContains(response, "Caja abierta.")
         self.assertEqual(session.opening_amount, Decimal("125.50"))
 
+    def test_pos_user_can_close_cash_from_pos_without_cash_module_access(self):
+        pos_user = User.objects.create_user(username="pos-close", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=pos_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="pos-close", password="secret123"))
+        client.post(
+            reverse("open_cash"),
+            {
+                "opening_amount": "80.00",
+                "next": reverse("pos"),
+            },
+            follow=True,
+        )
+
+        response = client.post(
+            reverse("close_cash"),
+            {
+                "closing_amount": "",
+                "next": reverse("pos"),
+            },
+            follow=True,
+        )
+
+        session = CashSession.objects.get(business=self.business, opened_by=pos_user)
+        self.assertEqual(response.redirect_chain, [(reverse("pos"), 302)])
+        self.assertContains(response, "Caja cerrada.")
+        self.assertEqual(session.status, CashSession.Status.CLOSED)
+        self.assertEqual(session.closing_amount, Decimal("0.00"))
+
     def test_close_cash_defaults_blank_amount_to_zero(self):
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
@@ -669,27 +724,193 @@ class ErpDomainTests(TestCase):
         self.assertTrue(membership.can_access_sales)
         self.assertTrue(membership.can_manage_users)
 
-    def test_dashboard_navigation_hides_disallowed_modules(self):
-        pos_user = User.objects.create_user(username="solo-pos", password="secret123")
-        BusinessMembership.objects.create(
+    def test_settings_user_creation_updates_password_for_existing_user(self):
+        existing_user = User.objects.create_user(username="u1", password="old-pass")
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.post(
+            reverse("settings"),
+            {
+                "action": "create_user",
+                "create-username": "u1",
+                "create-email": "u1@1.com",
+                "create-password": "123",
+                "create-can_access_pos": "on",
+                "create-is_active": "on",
+            },
+            follow=True,
+        )
+
+        existing_user.refresh_from_db()
+        membership = BusinessMembership.objects.get(business=self.business, user=existing_user)
+        self.assertContains(response, "Usuario u1 agregado al negocio.")
+        self.assertTrue(existing_user.check_password("123"))
+        self.assertEqual(existing_user.email, "u1@1.com")
+        self.assertTrue(membership.can_access_pos)
+
+    def test_settings_can_expire_user_password_and_force_reset(self):
+        target_user = User.objects.create_user(username="temporada", password="secret123")
+        target_membership = BusinessMembership.objects.create(
             business=self.business,
-            user=pos_user,
+            user=target_user,
             role=BusinessMembership.Role.CASHIER,
             can_access_pos=True,
-            can_access_cash=True,
         )
         client = Client()
-        self.assertTrue(client.login(username="solo-pos", password="secret123"))
+        self.assertTrue(client.login(username="cajero", password="secret123"))
 
-        response = client.get(reverse("dashboard"))
+        response = client.post(
+            reverse("settings"),
+            {
+                "action": "expire_password",
+                "membership_id": target_membership.id,
+            },
+            follow=True,
+        )
 
-        self.assertContains(response, reverse("pos"))
-        self.assertContains(response, reverse("cash"))
-        self.assertNotContains(response, reverse("inventory"))
-        self.assertNotContains(response, reverse("sales"))
-        self.assertNotContains(response, reverse("clients"))
-        self.assertNotContains(response, reverse("credits"))
-        self.assertNotContains(response, reverse("reports"))
+        target_user.refresh_from_db()
+        self.assertContains(response, "La contraseña de temporada fue caducada.")
+        self.assertTrue(target_user.password_security.must_change_password)
+        self.assertIsNotNone(target_user.password_security.password_expired_at)
+
+        expired_client = Client()
+        self.assertTrue(expired_client.login(username="temporada", password="secret123"))
+
+        redirected = expired_client.get(reverse("dashboard"), follow=True)
+        self.assertContains(redirected, "Cambiar contraseña")
+        self.assertContains(redirected, "Contraseña actual")
+
+        change_response = expired_client.post(
+            reverse("password_change"),
+            {
+                "old_password": "secret123",
+                "new_password1": "nueva12345",
+                "new_password2": "nueva12345",
+            },
+            follow=True,
+        )
+
+        target_user.refresh_from_db()
+        self.assertContains(change_response, "Contraseña actualizada.")
+        self.assertFalse(target_user.password_security.must_change_password)
+        self.assertTrue(target_user.check_password("nueva12345"))
+
+    def test_password_change_preserves_active_business_context(self):
+        hybrid_user = User.objects.create_user(username="multi", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.other_business,
+            user=hybrid_user,
+            role=BusinessMembership.Role.OWNER,
+            is_owner=True,
+            is_admin=True,
+            can_access_pos=True,
+            can_access_inventory=True,
+            can_access_credits=True,
+            can_access_cash=True,
+            can_access_reports=True,
+        )
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=hybrid_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+
+        client = Client()
+        self.assertTrue(client.login(username="multi", password="secret123"))
+        session = client.session
+        session["business_id"] = self.business.id
+        session.save()
+
+        response = client.post(
+            reverse("password_change"),
+            {
+                "old_password": "secret123",
+                "new_password1": "nueva12345",
+                "new_password2": "nueva12345",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, self.business.name)
+        self.assertNotContains(response, self.other_business.name)
+        self.assertEqual(client.session.get("business_id"), self.business.id)
+
+    def test_current_business_defaults_to_most_recent_membership(self):
+        hybrid_user = User.objects.create_user(username="multi-default", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.other_business,
+            user=hybrid_user,
+            role=BusinessMembership.Role.OWNER,
+            is_owner=True,
+            is_admin=True,
+            can_access_pos=True,
+            can_access_inventory=True,
+            can_access_credits=True,
+            can_access_cash=True,
+            can_access_reports=True,
+        )
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=hybrid_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+            can_access_sales=True,
+        )
+
+        client = Client()
+        self.assertTrue(client.login(username="multi-default", password="secret123"))
+
+        response = client.get(reverse("pos"))
+
+        self.assertContains(response, self.business.name)
+        self.assertNotContains(response, self.other_business.name)
+        self.assertEqual(client.session.get("business_id"), self.business.id)
+
+    def test_operational_user_sidebar_hides_dashboard_and_settings_links(self):
+        op_user = User.objects.create_user(username="solo-op", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=op_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+            can_access_sales=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="solo-op", password="secret123"))
+
+        response = client.get(reverse("pos"))
+
+        self.assertContains(response, '<a href="/pos/">Punto de Venta</a>', html=False)
+        self.assertContains(response, '<a href="/ventas/">Ventas</a>', html=False)
+        self.assertContains(response, '<a href="/clientes/">Clientes</a>', html=False)
+        self.assertNotContains(response, '<a href="/">Dashboard</a>', html=False)
+        self.assertNotContains(response, '<a href="/configuracion/">Configuración</a>', html=False)
+        self.assertNotContains(response, '<a href="/inventario/">Inventario</a>', html=False)
+        self.assertNotContains(response, '<a href="/creditos/">Créditos</a>', html=False)
+        self.assertNotContains(response, '<a href="/caja/">Caja</a>', html=False)
+        self.assertNotContains(response, '<a href="/reportes/">Reportes</a>', html=False)
+
+    def test_operational_user_is_redirected_away_from_dashboard_and_settings(self):
+        op_user = User.objects.create_user(username="solo-redirect", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=op_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+            can_access_sales=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="solo-redirect", password="secret123"))
+
+        dashboard_response = client.get(reverse("dashboard"))
+        settings_response = client.get(reverse("settings"))
+
+        self.assertEqual(dashboard_response.status_code, 302)
+        self.assertEqual(dashboard_response.url, reverse("pos"))
+        self.assertEqual(settings_response.status_code, 302)
+        self.assertEqual(settings_response.url, reverse("pos"))
 
     def test_sales_user_can_access_sales_module_but_not_credits(self):
         sales_user = User.objects.create_user(username="ventas", password="secret123")

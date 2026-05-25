@@ -134,6 +134,36 @@ label {
   gap: 0.25rem;
 }
 
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+.sidebar-logout-form {
+  margin: 0;
+}
+
+.sidebar-logout-button {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.72rem 0.8rem;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef4ff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.sidebar-logout-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .nav a {
   text-decoration: none;
   border-radius: 8px;
@@ -264,6 +294,46 @@ h2 {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 170px);
+}
+
+.cash-session-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.cash-close-details {
+  position: relative;
+}
+
+.cash-close-details > summary {
+  list-style: none;
+}
+
+.cash-close-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cash-close-details[open] .cash-close-form {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 4;
+  width: min(240px, calc(100vw - 2rem));
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.65rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.cash-close-form label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.92rem;
 }
 
 .pos-ticket {
@@ -781,6 +851,13 @@ th {
   color: var(--ink);
 }
 
+.icon-button svg {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  fill: currentColor;
+}
+
 .small-button {
   padding: 0.62rem 0.8rem;
   background: var(--brand);
@@ -927,31 +1004,97 @@ th {
   margin: 0;
 }
 
-.membership-list {
-  display: grid;
-  gap: 0.85rem;
+.table-wrap {
+  overflow-x: auto;
 }
 
-.membership-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.9rem;
-  display: grid;
-  gap: 0.85rem;
+.membership-table {
+  min-width: 980px;
 }
 
-.membership-summary {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
+.membership-table th,
+.membership-table td {
+  padding: 0.6rem 0.7rem;
+}
+
+.membership-table td {
+  vertical-align: middle;
+}
+
+.membership-table td strong {
+  display: block;
+  margin-bottom: 0.18rem;
+}
+
+.membership-table .helper-text {
+  font-size: 0.88rem;
 }
 
 .badge-row {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.badge-row-left {
+  justify-content: flex-start;
+}
+
+.membership-action-row {
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.membership-details {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.membership-details > summary {
+  list-style: none;
+}
+
+.membership-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.membership-edit-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+  min-width: 720px;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.membership-permission-grid {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.compact-check {
+  min-height: 38px;
+  padding: 0.52rem 0.6rem;
+  font-size: 0.92rem;
+}
+
+.membership-inline-action {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.membership-inline-action .small-button,
+.membership-details > summary {
+  min-height: 42px;
+}
+
+.danger-button {
+  background: var(--danger);
+  color: #fff;
 }
 
 .document-body {

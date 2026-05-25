@@ -1,7 +1,12 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import CreditAccount, Customer, Location
+from django.contrib.auth import get_user_model
+
+from .models import CreditAccount, Customer, Location, UserSecurity
+
+
+User = get_user_model()
 
 
 @receiver(post_save, sender=Customer)
@@ -18,3 +23,7 @@ def keep_one_default_location(sender, instance, **kwargs):
     if instance.is_default:
         Location.objects.filter(business=instance.business, is_default=True).exclude(pk=instance.pk).update(is_default=False)
 
+
+@receiver(post_save, sender=User)
+def ensure_user_security(sender, instance, created, **kwargs):
+    UserSecurity.objects.get_or_create(user=instance)
