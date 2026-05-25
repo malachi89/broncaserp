@@ -45,8 +45,10 @@
         <label class="check-option">{{ create_user_form.can_access_sales }} <span>Ventas</span></label>
         <label class="check-option">{{ create_user_form.can_access_credits }} <span>Créditos</span></label>
         <label class="check-option">{{ create_user_form.can_access_cash }} <span>Caja</span></label>
+        <label class="check-option">{{ create_user_form.can_access_reports }} <span>Reportes</span></label>
         <label class="check-option">{{ create_user_form.is_active }} <span>Activo</span></label>
       </div>
+      <p class="helper-text">Debes marcar al menos un permiso de módulo o Administrador.</p>
 
       <button class="primary-button" type="submit">Crear usuario</button>
     </form>
@@ -118,6 +120,7 @@
                           <label class="check-option compact-check">{{ row.form.can_access_sales }} <span>Ventas</span></label>
                           <label class="check-option compact-check">{{ row.form.can_access_credits }} <span>Créditos</span></label>
                           <label class="check-option compact-check">{{ row.form.can_access_cash }} <span>Caja</span></label>
+                          <label class="check-option compact-check">{{ row.form.can_access_reports }} <span>Reportes</span></label>
                           <label class="check-option compact-check">{{ row.form.is_active }} <span>Activo</span></label>
                         </div>
                         <button class="small-button" type="submit">Guardar</button>

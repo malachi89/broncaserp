@@ -5,7 +5,7 @@ from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum
@@ -129,14 +129,16 @@ def no_business(request):
 
 @login_required
 def password_change(request):
-    form = PasswordChangeForm(user=request.user, data=request.POST or None)
+    user_security, _created = UserSecurity.objects.get_or_create(user=request.user)
+    requires_current_password = not user_security.must_change_password
+    form_class = PasswordChangeForm if requires_current_password else SetPasswordForm
+    form = form_class(user=request.user, data=request.POST or None)
     if request.method == "POST" and form.is_valid():
         active_business_id = request.session.get("business_id")
         form.save()
         update_session_auth_hash(request, request.user)
         if active_business_id:
             request.session["business_id"] = active_business_id
-        user_security, _created = UserSecurity.objects.get_or_create(user=request.user)
         user_security.clear_password_expiry()
         AuditLog.objects.create(
             business=getattr(request, "business", None),
@@ -149,7 +151,14 @@ def password_change(request):
         messages.success(request, "Contraseña actualizada.")
         return redirect(preferred_landing_url_name(getattr(request, "membership", None)))
 
-    return render(request, "registration/password_change.html", {"form": form})
+    return render(
+        request,
+        "registration/password_change.html",
+        {
+            "form": form,
+            "requires_current_password": requires_current_password,
+        },
+    )
 
 
 @tenant_required
@@ -159,10 +168,9 @@ def dashboard(request):
 
     business = request.business
     today = timezone.localdate()
-    suggested_start = today.replace(day=1)
     panel = request.GET.get("panel", "").strip()
     overview_requested = panel == "overview"
-    start_date_value = request.GET.get("start_date") or str(suggested_start)
+    start_date_value = request.GET.get("start_date") or str(today)
     end_date_value = request.GET.get("end_date") or str(today)
 
     sales_total = None
@@ -769,6 +777,14 @@ def settings_view(request):
                 membership = create_user_form.save()
                 messages.success(request, f"Usuario {membership.user.username} agregado al negocio.")
                 return redirect("settings")
+            first_non_field_error = next(iter(create_user_form.non_field_errors()), None)
+            if first_non_field_error:
+                messages.error(request, first_non_field_error)
+            else:
+                for field_errors in create_user_form.errors.values():
+                    if field_errors:
+                        messages.error(request, field_errors[0])
+                        break
         elif action == "expire_password":
             membership = get_object_or_404(
                 BusinessMembership.objects.select_related("user", "user__password_security"),

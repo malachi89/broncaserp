@@ -539,6 +539,8 @@ class ErpDomainTests(TestCase):
         self.assertContains(response, "Ver")
         self.assertContains(response, 'name="start_date"', html=False)
         self.assertContains(response, 'name="end_date"', html=False)
+        today = timezone.localdate().isoformat()
+        self.assertContains(response, f'value="{today}"', html=False)
         self.assertNotContains(response, "<th>Ticket</th>", html=False)
 
     def test_dashboard_loads_sales_for_selected_date_range(self):
@@ -749,6 +751,47 @@ class ErpDomainTests(TestCase):
         self.assertEqual(existing_user.email, "u1@1.com")
         self.assertTrue(membership.can_access_pos)
 
+    def test_settings_user_creation_shows_error_when_no_access_is_selected(self):
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.post(
+            reverse("settings"),
+            {
+                "action": "create_user",
+                "create-username": "sin_acceso",
+                "create-email": "sin_acceso@example.com",
+                "create-password": "secret123",
+                "create-is_active": "on",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Selecciona al menos un acceso o marca Administrador.")
+        self.assertFalse(User.objects.filter(username="sin_acceso").exists())
+
+    def test_settings_user_creation_can_grant_reports_access(self):
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.post(
+            reverse("settings"),
+            {
+                "action": "create_user",
+                "create-username": "reportero",
+                "create-email": "reportero@example.com",
+                "create-password": "secret123",
+                "create-can_access_reports": "on",
+                "create-is_active": "on",
+            },
+            follow=True,
+        )
+
+        membership = BusinessMembership.objects.get(business=self.business, user__username="reportero")
+        self.assertContains(response, "Usuario reportero agregado al negocio.")
+        self.assertTrue(membership.can_access_reports)
+        self.assertFalse(membership.can_manage_users)
+
     def test_settings_can_expire_user_password_and_force_reset(self):
         target_user = User.objects.create_user(username="temporada", password="secret123")
         target_membership = BusinessMembership.objects.create(
@@ -779,12 +822,11 @@ class ErpDomainTests(TestCase):
 
         redirected = expired_client.get(reverse("dashboard"), follow=True)
         self.assertContains(redirected, "Cambiar contraseña")
-        self.assertContains(redirected, "Contraseña actual")
+        self.assertNotContains(redirected, "Contraseña actual")
 
         change_response = expired_client.post(
             reverse("password_change"),
             {
-                "old_password": "secret123",
                 "new_password1": "nueva12345",
                 "new_password2": "nueva12345",
             },
