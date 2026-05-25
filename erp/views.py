@@ -74,6 +74,19 @@ def module_access_required(permission_attr, denied_message="No tienes acceso a e
     return decorator
 
 
+def can_open_cash_from_request(request):
+    membership = getattr(request, "membership", None)
+    return bool(
+        membership
+        and membership.is_active
+        and (
+            membership.has_full_access
+            or membership.can_access_cash
+            or membership.can_access_pos
+        )
+    )
+
+
 def build_membership_rows(request, memberships, can_manage_users, bound_form=None):
     rows = []
     for membership in memberships:
@@ -218,24 +231,16 @@ def pos(request):
             .filter(Q(name__icontains=query) | Q(barcode__icontains=query) | Q(sku__icontains=query))
             .order_by("name")[:80]
         )
-    customers = Customer.objects.filter(business=business, is_active=True).order_by("name")
-    recent_pos_sales = (
-        business_sales_queryset(business)
-        .filter(origin=Sale.Origin.POS, created_by=request.user)
-        .order_by("-created_at")[:8]
-    )
     return render(
         request,
         "erp/pos.html",
         {
             "products": products,
-            "customers": customers,
             "cash_session": current_cash_session(business, request.user),
             "request_nonce": secrets.token_urlsafe(24),
             "query": query,
             "sale_saved": request.GET.get("sale_saved") == "1",
             "last_sale": last_sale,
-            "recent_pos_sales": recent_pos_sales,
         },
     )
 
@@ -635,15 +640,20 @@ def cash(request):
 
 
 @tenant_required
-@module_access_required("can_access_cash_effective")
 @require_POST
 def open_cash(request):
+    if not can_open_cash_from_request(request):
+        messages.error(request, "No tienes acceso a este módulo.")
+        return redirect("dashboard")
     try:
         open_cash_session(request.business, request.user, request.POST.get("opening_amount", "0"))
         messages.success(request, "Caja abierta.")
     except ValidationError as exc:
         messages.error(request, exc.messages[0])
-    return redirect("cash")
+    next_url = request.POST.get("next") or reverse("cash")
+    if next_url not in {reverse("cash"), reverse("pos")}:
+        next_url = reverse("cash")
+    return redirect(next_url)
 
 
 @tenant_required

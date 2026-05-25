@@ -411,6 +411,10 @@ def create_pos_sale(
         if existing_sale:
             return existing_sale
 
+    cash_session = current_cash_session(business, user)
+    if cash_session is None:
+        raise ValidationError("Debes abrir la caja antes de registrar ventas.")
+
     payment_method = normalize_payment_method(payment_method)
     clean_items = _normalize_cart_items(items)
     customer = None

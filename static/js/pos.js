@@ -18,6 +18,7 @@
   const changeTotal = document.getElementById("change-total");
   const submitButton = posForm ? posForm.querySelector("button[type='submit']") : null;
   const isSaleSaved = posForm && posForm.dataset.saleSaved === "1";
+  const hasOpenCashSession = posForm && posForm.dataset.cashSession === "1";
   const POS_DRAFT_KEY = "broncaserp:pos:draft:v1";
   const cart = new Map();
   let cartGrandTotal = 0;
@@ -38,7 +39,6 @@
       barcode: button.dataset.barcode,
       sku: button.dataset.sku,
       price: Number(button.dataset.price),
-      stock: Number(button.dataset.stock),
     };
   }
 
@@ -112,7 +112,6 @@
             barcode: String(product.barcode || ""),
             sku: String(product.sku || ""),
             price: Number(product.price || unitPrice),
-            stock: Number(product.stock || 0),
           },
           quantity,
           unitPrice,
@@ -220,7 +219,6 @@
       line.innerHTML = `
         <div>
           <strong title="${product.name}">${product.name}</strong>
-          <small class="${product.stock < 0 ? "danger-text" : ""}">Stock ${product.stock}</small>
         </div>
         <input type="number" min="0.001" step="any" data-step-one="true" value="${quantity}" aria-label="Cantidad de ${product.name}">
         <input type="number" min="0.01" step="0.01" value="${lineState.unitPrice.toFixed(2)}" aria-label="Precio unitario de ${product.name}">
@@ -379,6 +377,11 @@
   });
 
   posForm.addEventListener("submit", (event) => {
+    if (!hasOpenCashSession) {
+      event.preventDefault();
+      showFeedback("Abre la caja antes de registrar ventas.", "error");
+      return;
+    }
     if (cart.size === 0) {
       event.preventDefault();
       showFeedback("Agrega productos al ticket.", "error");

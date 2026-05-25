@@ -504,6 +504,10 @@ class ErpDomainTests(TestCase):
         response = client.get(reverse("pos"))
 
         self.assertContains(response, 'id="pos-feedback"', html=False)
+        self.assertNotContains(response, 'id="customer-id"', html=False)
+        self.assertNotContains(response, "Últimos tickets")
+        self.assertNotContains(response, "Selecciona cliente")
+        self.assertNotContains(response, 'value="credit"', html=False)
 
     def test_dashboard_requires_manual_queries(self):
         client = Client()
@@ -549,6 +553,49 @@ class ErpDomainTests(TestCase):
         session = CashSession.objects.get(business=self.business, opened_by=self.user, status=CashSession.Status.OPEN)
         self.assertContains(response, "Caja abierta.")
         self.assertEqual(session.opening_amount, Decimal("0.00"))
+
+    def test_pos_blocks_sale_submission_when_cash_is_closed(self):
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.post(
+            reverse("pos"),
+            {
+                "cart_json": '[{"product_id": %s, "quantity": "1"}]' % self.product.id,
+                "payment_method": SalePayment.Method.CASH,
+                "tendered_amount": "20.00",
+                "request_nonce": "pos-no-cash",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(Sale.objects.filter(business=self.business, origin=Sale.Origin.POS).count(), 0)
+        self.assertContains(response, "Debes abrir la caja antes de registrar ventas.")
+
+    def test_pos_user_can_open_cash_from_pos_without_cash_module_access(self):
+        pos_user = User.objects.create_user(username="pos-only", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=pos_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="pos-only", password="secret123"))
+
+        response = client.post(
+            reverse("open_cash"),
+            {
+                "opening_amount": "125.50",
+                "next": reverse("pos"),
+            },
+            follow=True,
+        )
+
+        session = CashSession.objects.get(business=self.business, opened_by=pos_user, status=CashSession.Status.OPEN)
+        self.assertEqual(response.redirect_chain, [(reverse("pos"), 302)])
+        self.assertContains(response, "Caja abierta.")
+        self.assertEqual(session.opening_amount, Decimal("125.50"))
 
     def test_close_cash_defaults_blank_amount_to_zero(self):
         client = Client()
