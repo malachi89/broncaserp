@@ -27,7 +27,7 @@
     <section class="document-grid">
       <div>
         <h2>Cliente</h2>
-        <p><strong>{{ sale.customer.name }}</strong></p>
+        <p><strong>{{ sale.customer.name|default:"Mostrador" }}</strong></p>
         <p>{{ sale.customer.contact_name|default:"" }}</p>
         <p>{{ sale.customer.tax_id|default:"" }}</p>
       </div>
@@ -99,6 +99,21 @@
       </div>
     </section>
 
+    <section class="document-notes">
+      <div>
+        <h2>Pago</h2>
+        {% for payment in sale.payments.all %}
+          <p>
+            {{ payment.get_method_display }} · Total ${{ payment.amount }}
+            {% if payment.method == "cash" %}
+              · Recibido ${{ payment.tendered_amount }} · Cambio ${{ payment.change_amount }}
+            {% endif %}
+            · {% if payment.method == "credit" %}No aplica a caja{% elif payment.cash_session %}En corte{% else %}Fuera de corte{% endif %}
+          </p>
+        {% endfor %}
+      </div>
+    </section>
+
     <section class="document-totals">
       <div><span>Subtotal</span><strong>${{ sale.subtotal }}</strong></div>
       <div><span>Descuento por líneas</span><strong>${{ sale.line_discount_total }}</strong></div>
@@ -108,7 +123,11 @@
 
     <div class="document-actions">
       <button class="small-button" type="button" onclick="window.print()">Imprimir</button>
-      <a class="ghost-button" href="{% url 'sale_detail' sale.id %}">Volver a venta</a>
+      {% if current_membership.can_access_sales_effective %}
+        <a class="ghost-button" href="{% url 'sale_detail' sale.id %}">Volver a venta</a>
+      {% else %}
+        <a class="ghost-button" href="{% url 'pos' %}">Volver al POS</a>
+      {% endif %}
     </div>
 
     <div class="print-page-number" aria-hidden="true"></div>

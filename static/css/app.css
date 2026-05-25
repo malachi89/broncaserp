@@ -405,6 +405,22 @@ h2 {
   font-size: 1.1rem;
 }
 
+.recent-ticket-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.recent-ticket-list a {
+  display: block;
+}
+
+.cash-movement-form {
+  margin-top: 1rem;
+}
+
 .sale-summary {
   display: grid;
   gap: 0.85rem;

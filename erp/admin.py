@@ -4,6 +4,7 @@ from .models import (
     AuditLog,
     Business,
     BusinessMembership,
+    CashMovement,
     CashSession,
     Category,
     CreditAccount,
@@ -49,9 +50,9 @@ admin.site.register(Category)
 admin.site.register(InventoryMovement)
 admin.site.register(Customer)
 admin.site.register(CashSession)
+admin.site.register(CashMovement)
 admin.site.register(SaleItem)
 admin.site.register(SalePayment)
 admin.site.register(CreditAccount)
 admin.site.register(CreditTransaction)
 admin.site.register(AuditLog)
-

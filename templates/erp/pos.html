@@ -15,7 +15,7 @@
       {% if cash_session %}
         <span class="status-pill good">Caja abierta</span>
       {% else %}
-        <a class="status-pill warn" href="{% url 'cash' %}">Abrir caja</a>
+        <a class="status-pill warn" href="{% url 'cash' %}">Sin caja · fuera de corte</a>
       {% endif %}
     </div>
     <form method="get" class="inline-search">
@@ -48,6 +48,9 @@
         >
           <strong>{{ product.name }}</strong>
           <span>${{ product.sale_price }}</span>
+          <small class="{% if product.stock_quantity < 0 %}danger-text{% endif %}">
+            Stock {{ product.stock_quantity|compact_quantity }}
+          </small>
         </button>
       {% empty %}
         {% if query %}
@@ -73,6 +76,13 @@
   <form method="post" class="panel pos-payment" id="pos-form" data-sale-saved="{{ sale_saved|yesno:'1,0' }}">
     {% csrf_token %}
     <input type="hidden" name="cart_json" id="cart-json">
+    <input type="hidden" name="request_nonce" value="{{ request_nonce }}">
+    {% if last_sale %}
+      <div class="message success">
+        {{ last_sale.folio }} listo.
+        <a class="text-link" href="{% url 'pos_sale_note' last_sale.id %}">Imprimir ticket</a>
+      </div>
+    {% endif %}
     <label>
       Método de pago
       <select name="payment_method" id="payment-method">
@@ -133,9 +143,9 @@
         </div>
       </div>
     </section>
-    <label id="customer-field" class="is-hidden">
-      Cliente
-      <select name="customer_id">
+    <label id="customer-field">
+      Cliente <span class="helper-text">(opcional; obligatorio para crédito)</span>
+      <select name="customer_id" id="customer-id">
         <option value="">Selecciona cliente</option>
         {% for customer in customers %}
           <option value="{{ customer.id }}">{{ customer.name }}</option>
@@ -143,6 +153,17 @@
       </select>
     </label>
     <button class="primary-button" type="submit" {% if not current_business.can_operate %}disabled{% endif %}>Cobrar</button>
+
+    <div class="recent-ticket-list">
+      <strong>Últimos tickets</strong>
+      {% for sale in recent_pos_sales %}
+        <a class="text-link" href="{% url 'pos_sale_note' sale.id %}">
+          {{ sale.folio }} · ${{ sale.total }} · {{ sale.created_at|date:"H:i" }}
+        </a>
+      {% empty %}
+        <span class="helper-text">Sin tickets recientes.</span>
+      {% endfor %}
+    </div>
   </form>
 </section>
 {% endblock %}

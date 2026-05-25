@@ -363,12 +363,20 @@ class Sale(TimeStampedModel):
     shipping_address = models.TextField(blank=True)
     customer_note = models.TextField(blank=True)
     internal_note = models.TextField(blank=True)
+    request_nonce = models.CharField(max_length=80, blank=True, db_index=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="sales_created")
     cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="sales_cancelled")
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancel_reason = models.CharField(max_length=240, blank=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "request_nonce"],
+                condition=~Q(request_nonce=""),
+                name="unique_sale_nonce_per_business",
+            )
+        ]
         indexes = [
             models.Index(fields=["business", "created_at"]),
             models.Index(fields=["business", "status", "created_at"]),
@@ -439,12 +447,48 @@ class SalePayment(TimeStampedModel):
 
     sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="payments")
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="sale_payments")
+    cash_session = models.ForeignKey(CashSession, null=True, blank=True, on_delete=models.SET_NULL, related_name="payments")
     method = models.CharField(max_length=20, choices=Method.choices)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    tendered_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    change_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reference = models.CharField(max_length=120, blank=True)
     received_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
 
     class Meta:
-        indexes = [models.Index(fields=["business", "method", "created_at"])]
+        indexes = [
+            models.Index(fields=["business", "method", "created_at"]),
+            models.Index(fields=["business", "cash_session", "created_at"]),
+        ]
+
+
+class CashMovement(TimeStampedModel):
+    class Type(models.TextChoices):
+        SALE_PAYMENT = "sale_payment", "Venta"
+        CREDIT_PAYMENT = "credit_payment", "Abono de crédito"
+        REFUND = "refund", "Reembolso"
+        MANUAL_IN = "manual_in", "Entrada manual"
+        MANUAL_OUT = "manual_out", "Salida manual"
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="cash_movements")
+    cash_session = models.ForeignKey(CashSession, null=True, blank=True, on_delete=models.SET_NULL, related_name="movements")
+    sale = models.ForeignKey(Sale, null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_movements")
+    sale_payment = models.ForeignKey(SalePayment, null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_movements")
+    credit_transaction = models.ForeignKey("CreditTransaction", null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_movements")
+    movement_type = models.CharField(max_length=24, choices=Type.choices)
+    method = models.CharField(max_length=20, choices=SalePayment.Method.choices, default=SalePayment.Method.CASH)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_out_of_session = models.BooleanField(default=False)
+    note = models.CharField(max_length=240, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["business", "cash_session", "created_at"]),
+            models.Index(fields=["business", "movement_type", "created_at"]),
+            models.Index(fields=["business", "is_out_of_session", "created_at"]),
+        ]
+        ordering = ["-created_at"]
 
 
 class CreditAccount(TimeStampedModel):

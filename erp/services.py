@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from .models import (
     AuditLog,
+    CashMovement,
     CashSession,
     CreditAccount,
     CreditTransaction,
@@ -35,6 +36,20 @@ def normalize_money_amount(value, *, empty_default=Decimal("0.00")):
         return Decimal(str(value)).quantize(Decimal("0.01"))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValidationError("El monto debe ser un número decimal válido.") from exc
+
+
+def normalize_payment_method(method, *, allow_credit=True):
+    method = method or SalePayment.Method.CASH
+    valid_methods = {choice for choice, _label in SalePayment.Method.choices}
+    if not allow_credit:
+        valid_methods.discard(SalePayment.Method.CREDIT)
+    if method not in valid_methods:
+        raise ValidationError("Método de pago no válido.")
+    return method
+
+
+def normalize_request_nonce(value):
+    return str(value or "").strip()[:80]
 
 
 def current_cash_session(business, user):
@@ -76,14 +91,95 @@ def close_cash_session(session, user, closing_amount):
     return session
 
 
+def _choice_label(choices, value):
+    return dict(choices).get(value, value)
+
+
 def cash_session_totals(session):
-    payments = (
-        SalePayment.objects.filter(sale__cash_session=session, sale__status=Sale.Status.PAID)
-        .values("method")
+    if not session:
+        return {
+            "methods": [],
+            "types": [],
+            "total": Decimal("0.00"),
+            "expected_cash": Decimal("0.00"),
+        }
+
+    movements = CashMovement.objects.filter(cash_session=session)
+    method_rows = (
+        movements.values("method")
         .annotate(total=Sum("amount"))
         .order_by("method")
     )
-    return {row["method"]: row["total"] for row in payments}
+    type_rows = (
+        movements.values("movement_type")
+        .annotate(total=Sum("amount"))
+        .order_by("movement_type")
+    )
+    method_totals = [
+        {
+            "method": row["method"],
+            "label": _choice_label(SalePayment.Method.choices, row["method"]),
+            "total": row["total"] or Decimal("0.00"),
+        }
+        for row in method_rows
+    ]
+    type_totals = [
+        {
+            "type": row["movement_type"],
+            "label": _choice_label(CashMovement.Type.choices, row["movement_type"]),
+            "total": row["total"] or Decimal("0.00"),
+        }
+        for row in type_rows
+    ]
+    total = sum((row["total"] for row in method_totals), Decimal("0.00"))
+    cash_total = sum(
+        (row["total"] for row in method_totals if row["method"] == SalePayment.Method.CASH),
+        Decimal("0.00"),
+    )
+    return {
+        "methods": method_totals,
+        "types": type_totals,
+        "total": total,
+        "expected_cash": session.opening_amount + cash_total,
+    }
+
+
+def out_of_session_cash_summary(business, user=None):
+    movements = CashMovement.objects.filter(business=business, is_out_of_session=True)
+    if user is not None:
+        movements = movements.filter(created_by=user)
+    return {
+        "total": movements.aggregate(total=Sum("amount"))["total"] or Decimal("0.00"),
+        "recent": movements.select_related("sale", "credit_transaction")[:10],
+    }
+
+
+def _record_cash_movement(
+    *,
+    business,
+    user,
+    movement_type,
+    method,
+    amount,
+    cash_session=None,
+    sale=None,
+    sale_payment=None,
+    credit_transaction=None,
+    note="",
+):
+    return CashMovement.objects.create(
+        business=business,
+        cash_session=cash_session,
+        sale=sale,
+        sale_payment=sale_payment,
+        credit_transaction=credit_transaction,
+        movement_type=movement_type,
+        method=method,
+        amount=amount,
+        is_out_of_session=cash_session is None,
+        note=note,
+        created_by=user,
+    )
 
 
 @transaction.atomic
@@ -150,7 +246,11 @@ def _create_sale_with_items(
     customer_note="",
     internal_note="",
     origin=Sale.Origin.POS,
+    tendered_amount=None,
+    require_cash_tender=False,
+    request_nonce="",
 ):
+    payment_method = normalize_payment_method(payment_method)
     line_discount_total = sum((line["line_discount"] for line in prepared_items), Decimal("0.00"))
     total = (subtotal - line_discount_total - discount_total).quantize(Decimal("0.01"))
     if total < 0:
@@ -159,6 +259,17 @@ def _create_sale_with_items(
     is_credit = payment_method == SalePayment.Method.CREDIT
     if is_credit and not customer:
         raise ValidationError("Selecciona un cliente para vender a crédito.")
+
+    tendered = Decimal("0.00")
+    change = Decimal("0.00")
+    if payment_method == SalePayment.Method.CASH:
+        cash_default = Decimal("0.00") if require_cash_tender else total
+        tendered = normalize_money_amount(tendered_amount, empty_default=cash_default)
+        if require_cash_tender and tendered <= 0:
+            raise ValidationError("Captura el monto recibido en efectivo.")
+        if tendered < total:
+            raise ValidationError("El monto recibido no cubre el total de la venta.")
+        change = (tendered - total).quantize(Decimal("0.01"))
 
     cash_session = current_cash_session(business, user)
     sale = Sale.objects.create(
@@ -173,6 +284,7 @@ def _create_sale_with_items(
         shipping_address=shipping_address,
         customer_note=customer_note,
         internal_note=internal_note,
+        request_nonce=request_nonce,
         created_by=user,
     )
 
@@ -207,13 +319,29 @@ def _create_sale_with_items(
             created_by=user,
         )
 
-    SalePayment.objects.create(
+    sale_payment = SalePayment.objects.create(
         sale=sale,
         business=business,
+        cash_session=None if is_credit else cash_session,
         method=payment_method,
         amount=total,
+        tendered_amount=tendered,
+        change_amount=change,
         received_by=user,
     )
+
+    if not is_credit:
+        _record_cash_movement(
+            business=business,
+            user=user,
+            movement_type=CashMovement.Type.SALE_PAYMENT,
+            method=payment_method,
+            amount=total,
+            cash_session=cash_session,
+            sale=sale,
+            sale_payment=sale_payment,
+            note=f"Venta {sale.folio}",
+        )
 
     if is_credit:
         account, _created = CreditAccount.objects.select_for_update().get_or_create(
@@ -267,8 +395,23 @@ def _create_sale_with_items(
 
 
 @transaction.atomic
-def create_pos_sale(business, user, items, payment_method, customer_id=None):
+def create_pos_sale(
+    business,
+    user,
+    items,
+    payment_method,
+    customer_id=None,
+    tendered_amount=None,
+    request_nonce="",
+):
     ensure_business_can_operate(business)
+    request_nonce = normalize_request_nonce(request_nonce)
+    if request_nonce:
+        existing_sale = Sale.objects.filter(business=business, request_nonce=request_nonce).first()
+        if existing_sale:
+            return existing_sale
+
+    payment_method = normalize_payment_method(payment_method)
     clean_items = _normalize_cart_items(items)
     customer = None
     if customer_id:
@@ -285,6 +428,8 @@ def create_pos_sale(business, user, items, payment_method, customer_id=None):
         quantity = item["quantity"]
         list_price = normalize_money_amount(product.sale_price)
         unit_price = normalize_money_amount(item.get("unit_price", list_price))
+        if unit_price <= 0:
+            raise ValidationError(f"El precio de {product.name} debe ser mayor a cero.")
         has_manual_price_override = unit_price != list_price
         price_override_reason = (item.get("price_override_reason") or "").strip()
         if has_manual_price_override and not price_override_reason:
@@ -316,6 +461,9 @@ def create_pos_sale(business, user, items, payment_method, customer_id=None):
         subtotal=subtotal.quantize(Decimal("0.01")),
         discount_total=Decimal("0.00"),
         origin=Sale.Origin.POS,
+        tendered_amount=tendered_amount,
+        require_cash_tender=True,
+        request_nonce=request_nonce,
     )
 
 @transaction.atomic
@@ -332,6 +480,7 @@ def create_specialized_sale(
     internal_note="",
 ):
     ensure_business_can_operate(business)
+    payment_method = normalize_payment_method(payment_method)
     clean_items = _normalize_cart_items(items)
     customer = Customer.objects.get(pk=customer_id, business=business, is_active=True)
     products = _load_sale_products(business, clean_items)
@@ -347,6 +496,8 @@ def create_specialized_sale(
         quantity = item["quantity"]
         list_price = normalize_money_amount(product.sale_price)
         unit_price = normalize_money_amount(item.get("unit_price", list_price))
+        if unit_price <= 0:
+            raise ValidationError(f"El precio de {product.name} debe ser mayor a cero.")
         has_manual_price_override = unit_price != list_price
         price_override_reason = (item.get("price_override_reason") or "").strip()
         if not has_manual_price_override:
@@ -387,13 +538,16 @@ def create_specialized_sale(
 
 @transaction.atomic
 def record_credit_payment(account, amount, method, user, note=""):
-    amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+    method = normalize_payment_method(method, allow_credit=False)
+    amount = normalize_money_amount(amount)
     if amount <= 0:
         raise ValidationError("El abono debe ser mayor a cero.")
     account = CreditAccount.objects.select_for_update().get(pk=account.pk, business=account.business)
-    account.balance = max(Decimal("0"), account.balance - amount)
+    if amount > account.balance:
+        raise ValidationError("El abono no puede ser mayor al saldo del cliente.")
+    account.balance -= amount
     account.save(update_fields=["balance", "updated_at"])
-    CreditTransaction.objects.create(
+    transaction_record = CreditTransaction.objects.create(
         business=account.business,
         account=account,
         transaction_type=CreditTransaction.Type.PAYMENT,
@@ -401,6 +555,16 @@ def record_credit_payment(account, amount, method, user, note=""):
         balance_after=account.balance,
         note=note or f"Abono por {method}",
         created_by=user,
+    )
+    _record_cash_movement(
+        business=account.business,
+        user=user,
+        movement_type=CashMovement.Type.CREDIT_PAYMENT,
+        method=method,
+        amount=amount,
+        cash_session=current_cash_session(account.business, user),
+        credit_transaction=transaction_record,
+        note=note or f"Abono de {account.customer.name}",
     )
     AuditLog.objects.create(
         business=account.business,
@@ -411,3 +575,113 @@ def record_credit_payment(account, amount, method, user, note=""):
         detail={"amount": str(amount), "method": method},
     )
     return account
+
+
+@transaction.atomic
+def record_manual_cash_movement(business, user, movement_type, amount, method=SalePayment.Method.CASH, note=""):
+    ensure_business_can_operate(business)
+    if movement_type not in {CashMovement.Type.MANUAL_IN, CashMovement.Type.MANUAL_OUT}:
+        raise ValidationError("Tipo de movimiento de caja no válido.")
+    method = normalize_payment_method(method, allow_credit=False)
+    amount = normalize_money_amount(amount)
+    if amount <= 0:
+        raise ValidationError("El monto debe ser mayor a cero.")
+    signed_amount = -amount if movement_type == CashMovement.Type.MANUAL_OUT else amount
+    movement = _record_cash_movement(
+        business=business,
+        user=user,
+        movement_type=movement_type,
+        method=method,
+        amount=signed_amount,
+        cash_session=current_cash_session(business, user),
+        note=note,
+    )
+    AuditLog.objects.create(
+        business=business,
+        actor=user,
+        action="cash.movement",
+        object_type="CashMovement",
+        object_id=str(movement.id),
+        detail={"movement_type": movement_type, "method": method, "amount": str(signed_amount)},
+    )
+    return movement
+
+
+@transaction.atomic
+def cancel_sale(sale, user, reason):
+    reason = str(reason or "").strip()
+    if not reason:
+        raise ValidationError("Captura el motivo de cancelación.")
+
+    sale = (
+        Sale.objects.select_for_update()
+        .select_related("business", "customer")
+        .prefetch_related("items", "payments")
+        .get(pk=sale.pk, business=sale.business)
+    )
+    if sale.status == Sale.Status.CANCELLED:
+        raise ValidationError("La venta ya está cancelada.")
+
+    original_status = sale.status
+    for item in sale.items.all():
+        if not item.product_id:
+            continue
+        product = Product.objects.select_for_update().get(pk=item.product_id, business=sale.business)
+        product.stock_quantity += item.quantity
+        product.save(update_fields=["stock_quantity", "updated_at"])
+        InventoryMovement.objects.create(
+            business=sale.business,
+            product=product,
+            movement_type=InventoryMovement.Type.RETURN,
+            quantity=item.quantity,
+            stock_after=product.stock_quantity,
+            note=f"Cancelación {sale.folio}",
+            created_by=user,
+        )
+
+    if original_status == Sale.Status.CREDIT and sale.customer_id:
+        account = CreditAccount.objects.select_for_update().get(business=sale.business, customer=sale.customer)
+        if account.balance < sale.total:
+            raise ValidationError("No se puede cancelar: el saldo actual del cliente es menor al total de la venta.")
+        account.balance -= sale.total
+        account.save(update_fields=["balance", "updated_at"])
+        CreditTransaction.objects.create(
+            business=sale.business,
+            account=account,
+            transaction_type=CreditTransaction.Type.ADJUSTMENT,
+            sale=sale,
+            amount=-sale.total,
+            balance_after=account.balance,
+            note=f"Cancelación {sale.folio}",
+            created_by=user,
+        )
+    else:
+        sale_payment = sale.payments.exclude(method=SalePayment.Method.CREDIT).order_by("created_at").first()
+        if sale_payment:
+            _record_cash_movement(
+                business=sale.business,
+                user=user,
+                movement_type=CashMovement.Type.REFUND,
+                method=sale_payment.method,
+                amount=-sale_payment.amount,
+                cash_session=current_cash_session(sale.business, user),
+                sale=sale,
+                sale_payment=sale_payment,
+                note=f"Cancelación {sale.folio}",
+            )
+
+    sale.status = Sale.Status.CANCELLED
+    sale.cancelled_by = user
+    sale.cancelled_at = timezone.now()
+    sale.cancel_reason = reason
+    sale.save(update_fields=["status", "cancelled_by", "cancelled_at", "cancel_reason", "updated_at"])
+
+    AuditLog.objects.create(
+        business=sale.business,
+        actor=user,
+        action="sale.cancelled",
+        object_type="Sale",
+        object_id=str(sale.id),
+        detail={"reason": reason, "total": str(sale.total), "original_status": original_status},
+    )
+    return sale

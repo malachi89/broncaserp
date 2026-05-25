@@ -1,4 +1,5 @@
 import json
+import secrets
 from decimal import Decimal
 from functools import wraps
 
@@ -16,6 +17,7 @@ from .forms import CustomerForm, MembershipAccessForm, ProductForm, ProviderBusi
 from .models import (
     Business,
     BusinessMembership,
+    CashMovement,
     CashSession,
     CreditAccount,
     Customer,
@@ -28,13 +30,16 @@ from .models import (
 )
 from .services import (
     adjust_inventory,
+    cancel_sale,
     cash_session_totals,
     close_cash_session,
     create_pos_sale,
     create_specialized_sale,
     current_cash_session,
     open_cash_session,
+    out_of_session_cash_summary,
     record_credit_payment,
+    record_manual_cash_movement,
 )
 
 
@@ -126,7 +131,7 @@ def dashboard(request):
                 business=business,
                 created_at__date__gte=start_date,
                 created_at__date__lte=end_date,
-            )
+            ).exclude(status=Sale.Status.CANCELLED)
             sales_total = sales_queryset.aggregate(total=Sum("total"), count=Count("id"))
             low_stock_count = Product.objects.filter(
                 business=business,
@@ -159,7 +164,14 @@ def models_min_stock():
 
 def specialized_sales_queryset(business):
     return (
-        Sale.objects.filter(business=business, origin=Sale.Origin.SPECIALIZED)
+        business_sales_queryset(business)
+        .filter(origin=Sale.Origin.SPECIALIZED)
+    )
+
+
+def business_sales_queryset(business):
+    return (
+        Sale.objects.filter(business=business)
         .select_related("customer", "created_by")
         .prefetch_related("items", "payments")
         .order_by("-created_at")
@@ -179,16 +191,26 @@ def pos(request):
                 items=cart,
                 payment_method=request.POST.get("payment_method", SalePayment.Method.CASH),
                 customer_id=request.POST.get("customer_id") or None,
+                tendered_amount=request.POST.get("tendered_amount"),
+                request_nonce=request.POST.get("request_nonce"),
             )
             if sale.has_manual_price_override:
-                messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}. Se aplicó precio manual en una o más líneas.")
+                messages.success(request, f"Venta {sale.folio} registrada por ${sale.total}. Se aplicó precio manual en una o más líneas.")
             else:
-                messages.success(request, f"Venta #{sale.id} registrada por ${sale.total}.")
-            return redirect(f"{reverse('pos')}?sale_saved=1")
+                messages.success(request, f"Venta {sale.folio} registrada por ${sale.total}.")
+            return redirect(f"{reverse('pos')}?sale_saved=1&last_sale={sale.id}")
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
 
     query = request.GET.get("q", "").strip()
+    last_sale = None
+    last_sale_id = request.GET.get("last_sale")
+    if last_sale_id:
+        last_sale = (
+            business_sales_queryset(business)
+            .filter(origin=Sale.Origin.POS, pk=last_sale_id)
+            .first()
+        )
     products = Product.objects.none()
     if query:
         products = (
@@ -197,6 +219,11 @@ def pos(request):
             .order_by("name")[:80]
         )
     customers = Customer.objects.filter(business=business, is_active=True).order_by("name")
+    recent_pos_sales = (
+        business_sales_queryset(business)
+        .filter(origin=Sale.Origin.POS, created_by=request.user)
+        .order_by("-created_at")[:8]
+    )
     return render(
         request,
         "erp/pos.html",
@@ -204,8 +231,11 @@ def pos(request):
             "products": products,
             "customers": customers,
             "cash_session": current_cash_session(business, request.user),
+            "request_nonce": secrets.token_urlsafe(24),
             "query": query,
             "sale_saved": request.GET.get("sale_saved") == "1",
+            "last_sale": last_sale,
+            "recent_pos_sales": recent_pos_sales,
         },
     )
 
@@ -446,7 +476,7 @@ def new_sale(request):
 @module_access_required("can_access_sales_effective")
 def sale_detail(request, sale_id):
     sale = get_object_or_404(
-        specialized_sales_queryset(request.business),
+        business_sales_queryset(request.business),
         pk=sale_id,
     )
     return render(request, "erp/sale_detail.html", {"sale": sale})
@@ -456,7 +486,7 @@ def sale_detail(request, sale_id):
 @module_access_required("can_access_sales_effective")
 def sale_note(request, sale_id):
     sale = get_object_or_404(
-        specialized_sales_queryset(request.business),
+        business_sales_queryset(request.business),
         pk=sale_id,
     )
     return render(
@@ -469,6 +499,41 @@ def sale_note(request, sale_id):
             "document_legend": "Documento interno para control comercial.",
         },
     )
+
+
+@tenant_required
+@module_access_required("can_access_pos_effective")
+def pos_sale_note(request, sale_id):
+    sale = get_object_or_404(
+        business_sales_queryset(request.business).filter(origin=Sale.Origin.POS),
+        pk=sale_id,
+    )
+    return render(
+        request,
+        "erp/sale_document.html",
+        {
+            "sale": sale,
+            "document_title": "Ticket de venta",
+            "document_code": "",
+            "document_legend": "Comprobante de mostrador.",
+        },
+    )
+
+
+@tenant_required
+@module_access_required("can_access_sales_effective")
+@require_POST
+def cancel_sale_view(request, sale_id):
+    sale = get_object_or_404(
+        business_sales_queryset(request.business),
+        pk=sale_id,
+    )
+    try:
+        cancel_sale(sale, request.user, request.POST.get("cancel_reason", ""))
+        messages.success(request, f"Venta {sale.folio} cancelada.")
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
+    return redirect("sale_detail", sale_id=sale.id)
 
 
 @tenant_required
@@ -545,8 +610,28 @@ def credit_payment(request):
 def cash(request):
     session = current_cash_session(request.business, request.user)
     totals = cash_session_totals(session) if session else {}
+    out_of_session = out_of_session_cash_summary(request.business, request.user)
     recent_sessions = CashSession.objects.filter(business=request.business, opened_by=request.user)[:10]
-    return render(request, "erp/cash.html", {"cash_session": session, "totals": totals, "recent_sessions": recent_sessions})
+    method_choices = [
+        (value, label)
+        for value, label in SalePayment.Method.choices
+        if value != SalePayment.Method.CREDIT
+    ]
+    return render(
+        request,
+        "erp/cash.html",
+        {
+            "cash_session": session,
+            "totals": totals,
+            "out_of_session": out_of_session,
+            "recent_sessions": recent_sessions,
+            "manual_movement_choices": [
+                (CashMovement.Type.MANUAL_IN, "Entrada"),
+                (CashMovement.Type.MANUAL_OUT, "Salida"),
+            ],
+            "method_choices": method_choices,
+        },
+    )
 
 
 @tenant_required
@@ -574,6 +659,25 @@ def close_cash(request):
         messages.success(request, "Caja cerrada.")
     except ValidationError as exc:
         messages.error(request, exc.messages[0])
+    return redirect("cash")
+
+
+@tenant_required
+@module_access_required("can_access_cash_effective")
+@require_POST
+def cash_movement(request):
+    try:
+        record_manual_cash_movement(
+            request.business,
+            request.user,
+            request.POST.get("movement_type", CashMovement.Type.MANUAL_IN),
+            request.POST.get("amount", "0"),
+            method=request.POST.get("method", SalePayment.Method.CASH),
+            note=request.POST.get("note", ""),
+        )
+        messages.success(request, "Movimiento de caja registrado.")
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
     return redirect("cash")
 
 

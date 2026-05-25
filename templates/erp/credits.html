@@ -7,7 +7,7 @@
   <form method="post" class="panel compact-form">
     {% csrf_token %}
     <div class="panel-header"><h2>Nuevo cliente</h2></div>
-    <p class="helper-text">También puedes administrar la cartera comercial desde <a class="text-link" href="{% url 'clients' %}">Clientes</a>.</p>
+    <p class="helper-text">También puedes administrar la cartera comercial desde <a class="text-link" href="{% url 'clients' %}">Clientes</a>. Límite 0 significa crédito sin límite.</p>
     {{ form.as_p }}
     <button class="primary-button" type="submit">Guardar cliente</button>
   </form>
@@ -38,9 +38,9 @@
           {% for account in accounts %}
             <tr>
               <td>{{ account.customer.name }}</td>
-              <td>${{ account.credit_limit }}</td>
+              <td>{% if account.credit_limit == 0 %}Sin límite{% else %}${{ account.credit_limit }}{% endif %}</td>
               <td>${{ account.balance }}</td>
-              <td>${{ account.available_credit }}</td>
+              <td>{% if account.credit_limit == 0 %}Sin límite{% else %}${{ account.available_credit }}{% endif %}</td>
               <td>
                 <form method="post" action="{% url 'credit_payment' %}" class="inline-form credit-payment-form">
                   {% csrf_token %}
@@ -48,6 +48,7 @@
                   <input name="amount" type="number" step="0.01" min="0.01" placeholder="Monto">
                   <select name="method">
                     <option value="cash">Efectivo</option>
+                    <option value="card">Tarjeta</option>
                     <option value="transfer">Transferencia</option>
                   </select>
                   <button class="small-button" type="submit">Registrar</button>

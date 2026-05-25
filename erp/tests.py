@@ -10,8 +10,10 @@ from .models import (
     AuditLog,
     Business,
     BusinessMembership,
+    CashMovement,
     CashSession,
     CreditAccount,
+    CreditTransaction,
     Customer,
     InventoryMovement,
     Plan,
@@ -19,7 +21,7 @@ from .models import (
     Sale,
     SalePayment,
 )
-from .services import create_pos_sale, create_specialized_sale
+from .services import cancel_sale, create_pos_sale, create_specialized_sale, record_credit_payment
 from .templatetags.erp_extras import compact_quantity
 
 
@@ -93,13 +95,20 @@ class ErpDomainTests(TestCase):
             user=self.user,
             items=[{"product_id": self.product.id, "quantity": "2"}],
             payment_method=SalePayment.Method.CASH,
+            tendered_amount="40.00",
         )
 
         self.product.refresh_from_db()
         self.assertEqual(sale.status, Sale.Status.PAID)
         self.assertEqual(sale.total, Decimal("36.00"))
         self.assertEqual(self.product.stock_quantity, Decimal("8.000"))
-        self.assertEqual(sale.payments.get().amount, Decimal("36.00"))
+        payment = sale.payments.get()
+        movement = CashMovement.objects.get(sale=sale, movement_type=CashMovement.Type.SALE_PAYMENT)
+        self.assertEqual(payment.amount, Decimal("36.00"))
+        self.assertEqual(payment.tendered_amount, Decimal("40.00"))
+        self.assertEqual(payment.change_amount, Decimal("4.00"))
+        self.assertTrue(movement.is_out_of_session)
+        self.assertIsNone(movement.cash_session)
         self.assertTrue(
             InventoryMovement.objects.filter(
                 business=self.business,
@@ -108,12 +117,38 @@ class ErpDomainTests(TestCase):
             ).exists()
         )
 
+    def test_cash_sale_with_open_session_appears_in_cash_cut(self):
+        session = CashSession.objects.create(
+            business=self.business,
+            opened_by=self.user,
+            opening_amount=Decimal("100.00"),
+        )
+
+        sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "2"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="50.00",
+        )
+
+        payment = sale.payments.get()
+        movement = CashMovement.objects.get(sale=sale, movement_type=CashMovement.Type.SALE_PAYMENT)
+        self.assertEqual(sale.cash_session, session)
+        self.assertEqual(payment.cash_session, session)
+        self.assertEqual(payment.tendered_amount, Decimal("50.00"))
+        self.assertEqual(payment.change_amount, Decimal("14.00"))
+        self.assertEqual(movement.cash_session, session)
+        self.assertFalse(movement.is_out_of_session)
+        self.assertEqual(movement.amount, Decimal("36.00"))
+
     def test_pos_sale_allows_negative_stock_when_inventory_is_short(self):
         sale = create_pos_sale(
             business=self.business,
             user=self.user,
             items=[{"product_id": self.product.id, "quantity": "12"}],
             payment_method=SalePayment.Method.CASH,
+            tendered_amount="220.00",
         )
 
         self.product.refresh_from_db()
@@ -125,6 +160,30 @@ class ErpDomainTests(TestCase):
         self.assertEqual(sale.total, Decimal("216.00"))
         self.assertEqual(self.product.stock_quantity, Decimal("-2.000"))
         self.assertEqual(movement.stock_after, Decimal("-2.000"))
+
+    def test_pos_sale_nonce_prevents_duplicate_charge(self):
+        first_sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="18.00",
+            request_nonce="same-register-submit",
+        )
+        second_sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="18.00",
+            request_nonce="same-register-submit",
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(first_sale.id, second_sale.id)
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 1)
+        self.assertEqual(CashMovement.objects.filter(sale=first_sale).count(), 1)
+        self.assertEqual(self.product.stock_quantity, Decimal("9.000"))
 
     def test_pos_sale_allows_manual_price_override_with_trace(self):
         sale = create_pos_sale(
@@ -139,6 +198,7 @@ class ErpDomainTests(TestCase):
                 }
             ],
             payment_method=SalePayment.Method.CASH,
+            tendered_amount="31.00",
         )
 
         item = sale.items.get()
@@ -159,6 +219,7 @@ class ErpDomainTests(TestCase):
                 user=self.user,
                 items=[{"product_id": self.product.id, "quantity": "1", "unit_price": "14.00"}],
                 payment_method=SalePayment.Method.CASH,
+                tendered_amount="14.00",
             )
 
     def test_credit_sale_creates_balance_and_respects_limit(self):
@@ -186,6 +247,26 @@ class ErpDomainTests(TestCase):
                 payment_method=SalePayment.Method.CREDIT,
                 customer_id=customer.id,
             )
+
+    def test_credit_payment_records_cash_movement_and_rejects_overpayment(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Crédito")
+        account = customer.credit_account
+        account.credit_limit = Decimal("100.00")
+        account.balance = Decimal("36.00")
+        account.save()
+        session = CashSession.objects.create(business=self.business, opened_by=self.user)
+
+        record_credit_payment(account, "20.00", SalePayment.Method.CASH, self.user, note="Abono parcial")
+        account.refresh_from_db()
+
+        movement = CashMovement.objects.get(movement_type=CashMovement.Type.CREDIT_PAYMENT)
+        self.assertEqual(account.balance, Decimal("16.00"))
+        self.assertEqual(movement.cash_session, session)
+        self.assertEqual(movement.amount, Decimal("20.00"))
+        self.assertFalse(movement.is_out_of_session)
+
+        with self.assertRaises(ValidationError):
+            record_credit_payment(account, "20.00", SalePayment.Method.CASH, self.user)
 
     def test_specialized_sale_applies_line_and_global_discounts(self):
         customer = Customer.objects.create(
@@ -241,6 +322,64 @@ class ErpDomainTests(TestCase):
         self.assertEqual(sale.status, Sale.Status.CREDIT)
         self.assertEqual(sale.total, Decimal("30.00"))
         self.assertEqual(account.balance, Decimal("30.00"))
+
+    def test_cancel_paid_sale_restores_inventory_and_records_refund(self):
+        CashSession.objects.create(business=self.business, opened_by=self.user)
+        sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "2"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="40.00",
+        )
+
+        cancel_sale(sale, self.user, "Error de captura")
+
+        sale.refresh_from_db()
+        self.product.refresh_from_db()
+        refund = CashMovement.objects.get(sale=sale, movement_type=CashMovement.Type.REFUND)
+        self.assertEqual(sale.status, Sale.Status.CANCELLED)
+        self.assertEqual(sale.cancel_reason, "Error de captura")
+        self.assertEqual(self.product.stock_quantity, Decimal("10.000"))
+        self.assertEqual(refund.amount, Decimal("-36.00"))
+        self.assertTrue(
+            InventoryMovement.objects.filter(
+                business=self.business,
+                product=self.product,
+                movement_type=InventoryMovement.Type.RETURN,
+                quantity=Decimal("2.000"),
+            ).exists()
+        )
+
+    def test_cancel_credit_sale_restores_inventory_and_reverts_credit(self):
+        customer = Customer.objects.create(business=self.business, name="Cliente Cancelación")
+        account = customer.credit_account
+        account.credit_limit = Decimal("100.00")
+        account.save()
+        sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "2"}],
+            payment_method=SalePayment.Method.CREDIT,
+            customer_id=customer.id,
+        )
+
+        cancel_sale(sale, self.user, "Cliente cambió pedido")
+
+        sale.refresh_from_db()
+        account.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(sale.status, Sale.Status.CANCELLED)
+        self.assertEqual(account.balance, Decimal("0.00"))
+        self.assertEqual(self.product.stock_quantity, Decimal("10.000"))
+        self.assertTrue(
+            CreditTransaction.objects.filter(
+                business=self.business,
+                account=account,
+                transaction_type=CreditTransaction.Type.ADJUSTMENT,
+                amount=Decimal("-36.00"),
+            ).exists()
+        )
 
     def test_inventory_view_is_scoped_to_current_business(self):
         client = Client()
@@ -332,6 +471,32 @@ class ErpDomainTests(TestCase):
         self.assertContains(inventory_response, "No tienes acceso a este módulo.")
         self.assertContains(reports_response, "No tienes acceso a este módulo.")
 
+    def test_pos_user_can_reprint_pos_ticket_without_sales_access(self):
+        pos_user = User.objects.create_user(username="pos-ticket", password="secret123")
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=pos_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+        sale = create_pos_sale(
+            business=self.business,
+            user=pos_user,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="20.00",
+        )
+        client = Client()
+        self.assertTrue(client.login(username="pos-ticket", password="secret123"))
+
+        ticket_response = client.get(reverse("pos_sale_note", args=[sale.id]))
+        detail_response = client.get(reverse("sale_detail", args=[sale.id]), follow=True)
+
+        self.assertEqual(ticket_response.status_code, 200)
+        self.assertContains(ticket_response, "Ticket de venta")
+        self.assertContains(ticket_response, sale.folio)
+        self.assertContains(detail_response, "No tienes acceso a este módulo.")
+
     def test_pos_page_renders_internal_feedback_container(self):
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
@@ -357,6 +522,7 @@ class ErpDomainTests(TestCase):
             user=self.user,
             items=[{"product_id": self.product.id, "quantity": "1"}],
             payment_method=SalePayment.Method.CASH,
+            tendered_amount="18.00",
         )
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
@@ -531,6 +697,27 @@ class ErpDomainTests(TestCase):
         self.assertContains(note_response, sale.folio)
         self.assertContains(note_response, "Notas")
         self.assertNotContains(note_response, "NV")
+
+    def test_pos_sale_documents_render_for_dashboard_links(self):
+        sale = create_pos_sale(
+            business=self.business,
+            user=self.user,
+            items=[{"product_id": self.product.id, "quantity": "1"}],
+            payment_method=SalePayment.Method.CASH,
+            tendered_amount="20.00",
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        detail_response = client.get(reverse("sale_detail", args=[sale.id]))
+        note_response = client.get(reverse("sale_note", args=[sale.id]))
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(note_response.status_code, 200)
+        self.assertContains(detail_response, sale.folio)
+        self.assertContains(note_response, sale.folio)
+        self.assertContains(detail_response, "Mostrador")
+        self.assertContains(note_response, "Mostrador")
 
     def test_sales_page_shows_status_and_payment_method_columns(self):
         customer = Customer.objects.create(business=self.business, name="Cliente Metodo")

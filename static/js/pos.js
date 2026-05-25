@@ -7,7 +7,7 @@
   const posForm = document.getElementById("pos-form");
   const clearCart = document.getElementById("clear-cart");
   const paymentMethod = document.getElementById("payment-method");
-  const customerField = document.getElementById("customer-field");
+  const customerSelect = document.getElementById("customer-id");
   const posFeedback = document.getElementById("pos-feedback");
   const cashTenderSection = document.getElementById("cash-tender-section");
   const tenderedAmountInput = document.getElementById("tendered-amount");
@@ -16,6 +16,7 @@
   const tenderedTotal = document.getElementById("tendered-total");
   const changeLabel = document.getElementById("change-label");
   const changeTotal = document.getElementById("change-total");
+  const submitButton = posForm ? posForm.querySelector("button[type='submit']") : null;
   const isSaleSaved = posForm && posForm.dataset.saleSaved === "1";
   const POS_DRAFT_KEY = "broncaserp:pos:draft:v1";
   const cart = new Map();
@@ -81,6 +82,7 @@
           priceOverrideReason: lineState.priceOverrideReason || "",
         })),
         paymentMethod: paymentMethod ? paymentMethod.value : "cash",
+        customerId: customerSelect ? customerSelect.value : "",
         tenderedAmount: readTenderedAmount(),
       };
       window.sessionStorage.setItem(POS_DRAFT_KEY, JSON.stringify(payload));
@@ -127,6 +129,9 @@
       if (tenderedAmountInput && draft.tenderedAmount !== undefined) {
         setTenderedAmount(draft.tenderedAmount);
       }
+      if (customerSelect && draft.customerId !== undefined) {
+        customerSelect.value = String(draft.customerId || "");
+      }
     } catch (_error) {
       clearPersistedDraft();
     }
@@ -148,6 +153,11 @@
 
   function syncStockFeedback() {
     // El POS permite vender con/ sin existencia; no mostrar advertencias de stock.
+  }
+
+  function syncCustomerRequirement() {
+    if (!paymentMethod || !customerSelect) return;
+    customerSelect.required = paymentMethod.value === "credit";
   }
 
   function updateCashTenderUI() {
@@ -210,6 +220,7 @@
       line.innerHTML = `
         <div>
           <strong title="${product.name}">${product.name}</strong>
+          <small class="${product.stock < 0 ? "danger-text" : ""}">Stock ${product.stock}</small>
         </div>
         <input type="number" min="0.001" step="any" data-step-one="true" value="${quantity}" aria-label="Cantidad de ${product.name}">
         <input type="number" min="0.01" step="0.01" value="${lineState.unitPrice.toFixed(2)}" aria-label="Precio unitario de ${product.name}">
@@ -315,9 +326,13 @@
   });
 
   paymentMethod.addEventListener("change", () => {
-    customerField.classList.toggle("is-hidden", paymentMethod.value !== "credit");
+    syncCustomerRequirement();
     updateCashTenderUI();
   });
+
+  if (customerSelect) {
+    customerSelect.addEventListener("change", saveDraft);
+  }
 
   if (tenderedAmountInput) {
     tenderedAmountInput.addEventListener("input", () => {
@@ -375,6 +390,12 @@
       showFeedback(`Captura el motivo del ajuste de precio para ${reasonValidation.productName}.`, "error");
       return;
     }
+    if (paymentMethod.value === "credit" && customerSelect && !customerSelect.value) {
+      event.preventDefault();
+      showFeedback("Selecciona un cliente para vender a crédito.", "error");
+      customerSelect.focus();
+      return;
+    }
     if (paymentMethod.value === "cash") {
       const tendered = readTenderedAmount();
       if (tendered <= 0) {
@@ -391,6 +412,10 @@
     isSubmittingSale = true;
     clearPersistedDraft();
     renderCart();
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Cobrando...";
+    }
   });
 
   if (isSaleSaved) {
@@ -402,7 +427,7 @@
   }
 
   renderCart();
-  customerField.classList.toggle("is-hidden", paymentMethod.value !== "credit");
+  syncCustomerRequirement();
   setTenderedAmount(readTenderedAmount());
   updateCashTenderUI();
 })();
