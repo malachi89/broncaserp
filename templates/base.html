@@ -29,9 +29,9 @@
       {% if request.user.is_authenticated %}
         {% if request.user.is_superuser %}
           <nav class="nav">
-            <a href="{% url 'provider_dashboard' %}">Proveedor</a>
+            <a href="{% url 'provider_dashboard' %}">Administración</a>
             <a href="{% url 'provider_businesses' %}">Clientes</a>
-            <a href="/admin/">Administración</a>
+            <a href="/admin/">Django Admin</a>
           </nav>
         {% else %}
           <nav class="nav">
@@ -60,7 +60,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <div>
-            <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Proveedor{% else %}Acceso{% endif %}</p>
+            <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Administración{% else %}Acceso{% endif %}</p>
             <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
           </div>
         </div>

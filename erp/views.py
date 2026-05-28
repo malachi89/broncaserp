@@ -1,6 +1,6 @@
 import json
 import secrets
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 from django.contrib import messages
@@ -15,7 +15,16 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import CustomerForm, MembershipAccessForm, ProductForm, ProviderBusinessForm, SpecializedSaleForm, TenantUserForm
+from .forms import (
+    CustomerForm,
+    MembershipAccessForm,
+    ProductForm,
+    ProviderBusinessForm,
+    ProviderBusinessUpdateForm,
+    ProviderPaymentForm,
+    SpecializedSaleForm,
+    TenantUserForm,
+)
 from .models import (
     Business,
     BusinessMembership,
@@ -109,7 +118,7 @@ def build_membership_rows(request, memberships, can_manage_users, bound_form=Non
                 form = MembershipAccessForm(
                     instance=membership,
                     prefix=f"member-{membership.id}",
-                    acting_membership=request.membership,
+                    acting_membership=getattr(request, "membership", None),
                 )
         rows.append(
             {
@@ -237,6 +246,75 @@ def business_sales_queryset(business):
         .prefetch_related("items", "payments")
         .order_by("-created_at")
     )
+
+
+def build_sale_cart_state(raw_cart_json, business):
+    try:
+        raw_items = json.loads(raw_cart_json or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raw_items = []
+
+    if not isinstance(raw_items, list):
+        raw_items = []
+
+    product_ids = []
+    for item in raw_items:
+        try:
+            product_ids.append(int(item.get("product_id")))
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+    products = Product.objects.filter(business=business, pk__in=product_ids)
+    product_map = {product.id: product for product in products}
+    initial_cart_items = []
+    persisted_cart_items = []
+
+    for item in raw_items:
+        try:
+            product_id = int(item.get("product_id"))
+            quantity = float(item.get("quantity") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+        if quantity <= 0:
+            continue
+
+        product = product_map.get(product_id)
+        if product is None:
+            continue
+
+        try:
+            unit_price = float(item.get("unit_price") or product.sale_price)
+        except (TypeError, ValueError):
+            unit_price = float(product.sale_price)
+
+        try:
+            discount_amount = max(0.0, float(item.get("discount_amount") or 0))
+        except (TypeError, ValueError):
+            discount_amount = 0.0
+
+        initial_cart_items.append(
+            {
+                "product_id": product.id,
+                "name": product.name,
+                "barcode": product.barcode,
+                "sku": product.sku,
+                "price": unit_price,
+                "stock": float(product.stock_quantity),
+                "quantity": quantity,
+                "discount": discount_amount,
+            }
+        )
+        persisted_cart_items.append(
+            {
+                "product_id": product.id,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "discount_amount": discount_amount,
+            }
+        )
+
+    return initial_cart_items, json.dumps(persisted_cart_items)
 
 
 @tenant_required
@@ -481,6 +559,21 @@ def sales(request):
 def new_sale(request):
     business = request.business
     query = request.GET.get("q", "").strip()
+    request_data = request.POST if request.method == "POST" else request.GET
+    sale_state = {
+        "customer_id": (request_data.get("customer_id") or "").strip(),
+        "customer_name": (request_data.get("customer_name") or "").strip(),
+        "shipping_address": (request_data.get("shipping_address") or "").strip(),
+        "payment_method": (request_data.get("payment_method") or SalePayment.Method.CASH).strip(),
+        "notes": (request_data.get("notes") or "").strip(),
+        "discount_total": (request_data.get("discount_total") or "0.00").strip() or "0.00",
+    }
+    initial_cart_items, sale_state["cart_json"] = build_sale_cart_state(request_data.get("cart_json", "[]"), business)
+
+    valid_payment_methods = {value for value, _label in SalePayment.Method.choices}
+    if sale_state["payment_method"] not in valid_payment_methods:
+        sale_state["payment_method"] = SalePayment.Method.CASH
+
     products = Product.objects.none()
     if query:
         products = (
@@ -511,7 +604,16 @@ def new_sale(request):
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 messages.error(request, exc.messages[0] if hasattr(exc, "messages") else str(exc))
     else:
-        form = SpecializedSaleForm(business=business)
+        form = SpecializedSaleForm(
+            business=business,
+            initial={
+                "customer_id": sale_state["customer_id"] or None,
+                "payment_method": sale_state["payment_method"],
+                "shipping_address": sale_state["shipping_address"],
+                "discount_total": sale_state["discount_total"],
+                "notes": sale_state["notes"],
+            },
+        )
 
     return render(
         request,
@@ -521,6 +623,8 @@ def new_sale(request):
             "products": products,
             "customers": customers,
             "query": query,
+            "sale_state": sale_state,
+            "initial_cart_items": initial_cart_items,
         },
     )
 
@@ -849,15 +953,27 @@ def settings_view(request):
 
 @user_passes_test(is_provider)
 def provider_dashboard(request):
+    today = timezone.localdate()
     totals = {
         "businesses": Business.objects.count(),
         "active": Business.objects.filter(status=Business.Status.ACTIVE).count(),
         "past_due": Business.objects.filter(status=Business.Status.PAST_DUE).count(),
         "suspended": Business.objects.filter(status=Business.Status.SUSPENDED).count(),
-        "monthly_payments": ProviderPayment.objects.filter(paid_at__month=timezone.localdate().month).aggregate(total=Sum("amount"))["total"] or Decimal("0"),
+        "monthly_payments": ProviderPayment.objects.filter(paid_at__year=today.year, paid_at__month=today.month).aggregate(total=Sum("amount"))["total"] or Decimal("0"),
     }
     recent_businesses = Business.objects.select_related("plan").order_by("-created_at")[:8]
     return render(request, "provider/dashboard.html", {"totals": totals, "recent_businesses": recent_businesses})
+
+
+def provider_audit(request, business, action, object_type, object_id="", detail=None):
+    AuditLog.objects.create(
+        business=business,
+        actor=request.user,
+        action=action,
+        object_type=object_type,
+        object_id=str(object_id or ""),
+        detail=detail or {},
+    )
 
 
 @user_passes_test(is_provider)
@@ -871,8 +987,16 @@ def provider_businesses(request):
             form = ProviderBusinessForm(request.POST)
             if form.is_valid():
                 business, user = form.save(created_by=request.user)
+                provider_audit(
+                    request,
+                    business,
+                    "provider.business_created",
+                    "Business",
+                    business.id,
+                    {"owner_user_id": user.id, "owner_username": user.username},
+                )
                 messages.success(request, f"Cliente {business.name} creado con usuario {user.username}.")
-                return redirect("provider_businesses")
+                return redirect("provider_business_detail", business_id=business.id)
         elif action == "update":
             business = get_object_or_404(Business, pk=request.POST.get("business_id"))
             business.status = request.POST.get("status", business.status)
@@ -880,27 +1004,62 @@ def provider_businesses(request):
             business.service_expires_at = parse_date(request.POST.get("service_expires_at", "")) or None
             business.notes = request.POST.get("notes", "")
             business.save(update_fields=["status", "plan", "service_expires_at", "notes", "updated_at"])
+            provider_audit(
+                request,
+                business,
+                "provider.business_account_updated",
+                "Business",
+                business.id,
+                {
+                    "status": business.status,
+                    "plan_id": business.plan_id,
+                    "service_expires_at": str(business.service_expires_at or ""),
+                },
+            )
             messages.success(request, f"Cuenta de {business.name} actualizada.")
             return redirect("provider_businesses")
         elif action == "payment":
             business = get_object_or_404(Business, pk=request.POST.get("business_id"))
-            amount = Decimal(request.POST.get("amount") or "0").quantize(Decimal("0.01"))
+            try:
+                amount = Decimal(request.POST.get("amount") or "0").quantize(Decimal("0.01"))
+            except (InvalidOperation, ValueError):
+                amount = Decimal("0.00")
             if amount <= 0:
                 messages.error(request, "El pago debe ser mayor a cero.")
             else:
-                ProviderPayment.objects.create(
+                payment = ProviderPayment.objects.create(
                     business=business,
                     amount=amount,
                     method=request.POST.get("method", ""),
                     note=request.POST.get("note", ""),
                     created_by=request.user,
                 )
+                provider_audit(
+                    request,
+                    business,
+                    "provider.payment_created",
+                    "ProviderPayment",
+                    payment.id,
+                    {"amount": str(payment.amount), "method": payment.method, "paid_at": str(payment.paid_at)},
+                )
                 messages.success(request, f"Pago registrado para {business.name}.")
             return redirect("provider_businesses")
     else:
         form = ProviderBusinessForm()
 
-    businesses = Business.objects.select_related("plan").annotate(user_count=Count("memberships")).order_by("name")
+    businesses = list(
+        Business.objects.select_related("plan")
+        .annotate(user_count=Count("memberships", distinct=True))
+        .order_by("name")
+    )
+    payment_totals = {
+        row["business_id"]: row["total"]
+        for row in ProviderPayment.objects.filter(business__in=businesses)
+        .values("business_id")
+        .annotate(total=Sum("amount"))
+    }
+    for business in businesses:
+        business.payment_total = payment_totals.get(business.id, Decimal("0.00"))
     plans = Plan.objects.filter(is_active=True).order_by("monthly_price", "name")
     return render(
         request,
@@ -910,5 +1069,138 @@ def provider_businesses(request):
             "businesses": businesses,
             "plans": plans,
             "status_choices": Business.Status.choices,
+        },
+    )
+
+
+@user_passes_test(is_provider)
+def provider_business_detail(request, business_id):
+    business = get_object_or_404(Business.objects.select_related("plan"), pk=business_id)
+    business_form = ProviderBusinessUpdateForm(instance=business, prefix="business")
+    payment_form = ProviderPaymentForm(prefix="payment")
+    create_user_form = TenantUserForm(business=business, prefix="create")
+    membership_form = None
+    action = ""
+
+    if request.method == "POST":
+        action = request.POST.get("action", "")
+        if action == "update_business":
+            business_form = ProviderBusinessUpdateForm(request.POST, instance=business, prefix="business")
+            if business_form.is_valid():
+                updated_business = business_form.save()
+                provider_audit(
+                    request,
+                    updated_business,
+                    "provider.business_updated",
+                    "Business",
+                    updated_business.id,
+                    {
+                        "status": updated_business.status,
+                        "plan_id": updated_business.plan_id,
+                        "service_expires_at": str(updated_business.service_expires_at or ""),
+                    },
+                )
+                messages.success(request, f"Datos de {updated_business.name} actualizados.")
+                return redirect("provider_business_detail", business_id=updated_business.id)
+        elif action == "payment":
+            payment_form = ProviderPaymentForm(request.POST, prefix="payment")
+            if payment_form.is_valid():
+                payment = payment_form.save(commit=False)
+                payment.business = business
+                payment.created_by = request.user
+                payment.save()
+                provider_audit(
+                    request,
+                    business,
+                    "provider.payment_created",
+                    "ProviderPayment",
+                    payment.id,
+                    {"amount": str(payment.amount), "method": payment.method, "paid_at": str(payment.paid_at)},
+                )
+                messages.success(request, f"Pago registrado para {business.name}.")
+                return redirect("provider_business_detail", business_id=business.id)
+        elif action == "create_user":
+            create_user_form = TenantUserForm(request.POST, business=business, prefix="create")
+            if create_user_form.is_valid():
+                membership = create_user_form.save()
+                provider_audit(
+                    request,
+                    business,
+                    "provider.user_created",
+                    "BusinessMembership",
+                    membership.id,
+                    {"user_id": membership.user_id, "username": membership.user.username},
+                )
+                messages.success(request, f"Usuario {membership.user.username} agregado a {business.name}.")
+                return redirect("provider_business_detail", business_id=business.id)
+        elif action == "expire_password":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user", "user__password_security"),
+                pk=request.POST.get("membership_id"),
+                business=business,
+            )
+            user_security, _created = UserSecurity.objects.get_or_create(user=membership.user)
+            user_security.expire_password()
+            provider_audit(
+                request,
+                business,
+                "provider.user_password_expired",
+                "User",
+                membership.user_id,
+                {"membership_id": membership.id, "username": membership.user.username},
+            )
+            messages.success(request, f"La contraseña de {membership.user.username} fue caducada.")
+            return redirect("provider_business_detail", business_id=business.id)
+        elif action == "update_membership":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user"),
+                pk=request.POST.get("membership_id"),
+                business=business,
+            )
+            if membership.is_owner:
+                messages.error(request, "El usuario propietario no se edita desde Administración.")
+                return redirect("provider_business_detail", business_id=business.id)
+
+            membership_form = MembershipAccessForm(
+                request.POST,
+                instance=membership,
+                prefix=f"member-{membership.id}",
+                acting_membership=None,
+            )
+            if membership_form.is_valid():
+                updated_membership = membership_form.save()
+                provider_audit(
+                    request,
+                    business,
+                    "provider.membership_updated",
+                    "BusinessMembership",
+                    updated_membership.id,
+                    {"user_id": updated_membership.user_id, "username": updated_membership.user.username},
+                )
+                messages.success(request, f"Accesos actualizados para {updated_membership.user.username}.")
+                return redirect("provider_business_detail", business_id=business.id)
+        else:
+            messages.error(request, "Acción no válida.")
+            return redirect("provider_business_detail", business_id=business.id)
+
+    memberships = business.memberships.select_related("user", "user__password_security").order_by("-is_owner", "-is_admin", "user__username")
+    membership_rows = build_membership_rows(
+        request,
+        memberships,
+        True,
+        bound_form=membership_form if action == "update_membership" else None,
+    )
+    payments = business.provider_payments.select_related("created_by")[:10]
+
+    return render(
+        request,
+        "provider/business_detail.html",
+        {
+            "business": business,
+            "business_form": business_form,
+            "payment_form": payment_form,
+            "create_user_form": create_user_form,
+            "membership_rows": membership_rows,
+            "payments": payments,
         },
     )

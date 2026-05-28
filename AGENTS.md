@@ -19,6 +19,9 @@ Run the app locally:
 .\.venv\Scripts\python.exe manage.py runserver
 ```
 
+Development workflow note:
+After any code change, stop the current Django dev server and restart it with `.\.venv\Scripts\python.exe manage.py runserver 8000`.
+
 Run tests:
 ```powershell
 .\.venv\Scripts\python.exe manage.py test

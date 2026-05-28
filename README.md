@@ -1,6 +1,6 @@
 # El Broncas ERP
 
-ERP SaaS ligero para punto de venta, inventario, creditos y administracion de cuentas de clientes.
+ERP ligero para punto de venta, inventario, creditos y administracion de cuentas de clientes.
 
 ## Stack
 
@@ -31,7 +31,6 @@ C:\Users\malch\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\p
 ## Flujo inicial
 
 1. Crear superusuario.
-2. Entrar a `/proveedor/`.
+2. Entrar a `/proveedor/`, que muestra la consola de Administración.
 3. Crear negocio/cliente nuevo con su usuario dueno.
 4. Entrar con el usuario del negocio y operar POS, inventario y creditos.
-

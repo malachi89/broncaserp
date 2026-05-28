@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block page_title %}Clientes{% endblock %}
+{% block page_title %}Clientes de Administración{% endblock %}
 
 {% block content %}
 <section class="two-column">
@@ -27,14 +27,16 @@
   </form>
 
   <div class="panel">
-    <div class="panel-header"><h2>Negocios</h2></div>
+    <div class="panel-header"><h2>Cuentas administradas</h2></div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Negocio</th>
+            <th>Contacto</th>
             <th>Usuarios</th>
             <th>Cuenta</th>
+            <th>Total pagado</th>
             <th>Pago</th>
           </tr>
         </thead>
@@ -42,8 +44,12 @@
           {% for business in businesses %}
             <tr>
               <td>
-                <strong>{{ business.name }}</strong><br>
+                <strong><a class="text-link" href="{% url 'provider_business_detail' business.id %}">{{ business.name }}</a></strong><br>
                 <small>{{ business.slug }}</small>
+              </td>
+              <td>
+                {{ business.owner_name|default:"Sin responsable" }}<br>
+                <small>{{ business.email|default:business.phone|default:"Sin contacto" }}</small>
               </td>
               <td>{{ business.user_count }}</td>
               <td>
@@ -67,6 +73,7 @@
                   <button class="small-button" type="submit">Guardar</button>
                 </form>
               </td>
+              <td>${{ business.payment_total|default:"0.00" }}</td>
               <td>
                 <form method="post" class="inline-form provider-payment-form">
                   {% csrf_token %}
@@ -79,7 +86,7 @@
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="4">Aún no hay negocios.</td></tr>
+            <tr><td colspan="6">Aún no hay negocios.</td></tr>
           {% endfor %}
         </tbody>
       </table>

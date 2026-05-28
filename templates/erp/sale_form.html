@@ -12,7 +12,7 @@
       </div>
       <a class="ghost-button" href="{% url 'sales' %}">Volver</a>
     </div>
-    <form method="get" class="inline-search">
+    <form method="get" class="inline-search" id="sale-product-search-form">
       <input
         id="sale-product-search"
         name="q"
@@ -22,6 +22,13 @@
         placeholder="Busca por nombre, código o SKU"
         autocomplete="off"
       >
+      <input type="hidden" name="cart_json" id="sale-search-cart-json" value="{{ sale_state.cart_json }}">
+      <input type="hidden" name="customer_id" id="sale-search-customer-id" value="{{ sale_state.customer_id }}">
+      <input type="hidden" name="customer_name" id="sale-search-customer-name" value="{{ sale_state.customer_name }}">
+      <input type="hidden" name="shipping_address" id="sale-search-shipping-address" value="{{ sale_state.shipping_address }}">
+      <input type="hidden" name="payment_method" id="sale-search-payment-method" value="{{ sale_state.payment_method }}">
+      <input type="hidden" name="notes" id="sale-search-notes" value="{{ sale_state.notes }}">
+      <input type="hidden" name="discount_total" id="sale-search-discount-total" value="{{ sale_state.discount_total }}">
       <button class="small-button" type="submit">Buscar</button>
     </form>
     <div class="product-grid" id="sale-product-grid">
@@ -48,86 +55,114 @@
     </div>
   </div>
 
-  <form method="post" class="panel sale-cart" id="sale-form">
+  <form method="post" class="sale-form-column sale-checkout" id="sale-form">
     {% csrf_token %}
-    <input type="hidden" name="cart_json" id="sale-cart-json">
-    <div class="panel-header">
-      <h2>Venta</h2>
-      <button type="button" class="ghost-button" id="sale-clear-cart">Limpiar</button>
-    </div>
+    <input type="hidden" name="cart_json" id="sale-cart-json" value="{{ sale_state.cart_json }}">
+    <section class="panel sale-cart-panel">
+      <div class="panel-header">
+        <h2>Carrito</h2>
+        <button type="button" class="ghost-button" id="sale-clear-cart">Limpiar</button>
+      </div>
 
-    {{ form.non_field_errors }}
-    <div id="sale-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
+      {{ form.non_field_errors }}
+      <div id="sale-feedback" class="message warn is-hidden" role="status" aria-live="polite"></div>
 
-    <label>
-      Cliente
-      {{ form.customer_id.errors }}
-      <input type="hidden" name="customer_id" id="customer-id" value="{{ form.data.customer_id|default:'' }}" required>
-      <input
-        id="customer-search"
-        name="customer_name"
-        class="search-input"
-        type="search"
-        list="customer-options"
-        placeholder="Busca y selecciona cliente (nombre, contacto, teléfono o RFC)"
-        autocomplete="off"
-        value="{{ form.data.customer_name|default:'' }}"
-        required
-      >
-      <datalist id="customer-options">
-        {% for customer in customers %}
-          <option
-            value="{{ customer.name }}{% if customer.phone %} · {{ customer.phone }}{% elif customer.tax_id %} · {{ customer.tax_id }}{% endif %}"
-            data-id="{{ customer.id }}"
-            data-address="{{ customer.address }}"
-            data-search="{{ customer.name }} {{ customer.contact_name }} {{ customer.phone }} {{ customer.email }} {{ customer.tax_id }}"
-          >
-            {{ customer.name }}
-          </option>
-        {% endfor %}
-      </datalist>
-    </label>
+      <div class="sale-cart-lines-head" aria-hidden="true">
+        <span>Producto</span>
+        <span>Cantidad</span>
+        <span>Descuento</span>
+        <span>Total</span>
+        <span></span>
+      </div>
+      <div id="sale-cart-lines" class="sale-cart-lines"></div>
 
-    <label>
-      Dirección de envío
-      {{ form.shipping_address.errors }}
-      <textarea name="shipping_address" id="shipping-address" rows="3">{{ form.data.shipping_address|default:form.fields.shipping_address.initial }}</textarea>
-    </label>
+      <div class="sale-summary">
+        <div><span>Subtotal</span><strong id="sale-subtotal">$0.00</strong></div>
+        <label>
+          Descuento general
+          {{ form.discount_total.errors }}
+          <input type="number" name="discount_total" id="sale-discount-total" min="0" step="0.01" value="{{ sale_state.discount_total|default:'0.00' }}">
+        </label>
+        <div><span>Total</span><strong id="sale-total">$0.00</strong></div>
+      </div>
+    </section>
 
-    <div class="sale-cart-lines-head" aria-hidden="true">
-      <span>Producto</span>
-      <span>Cantidad</span>
-      <span>Descuento</span>
-      <span>Total</span>
-      <span></span>
-    </div>
-    <div id="sale-cart-lines" class="sale-cart-lines"></div>
+    <section class="panel sale-customer-panel">
+      <div class="panel-header">
+        <h2>Cliente y pago</h2>
+      </div>
 
-    <div class="sale-summary">
-      <div><span>Subtotal</span><strong id="sale-subtotal">$0.00</strong></div>
       <label>
-        Descuento general
-        {{ form.discount_total.errors }}
-        <input type="number" name="discount_total" id="sale-discount-total" min="0" step="0.01" value="{{ form.data.discount_total|default:'0.00' }}">
+        Cliente
+        {{ form.customer_id.errors }}
+        <input type="hidden" name="customer_id" id="customer-id" value="{{ sale_state.customer_id }}" required>
+        <div class="customer-autocomplete">
+          <input
+            id="customer-search"
+            name="customer_name"
+            class="search-input"
+            type="search"
+            placeholder="Busca y selecciona cliente (nombre, contacto, teléfono o RFC)"
+            autocomplete="off"
+            value="{{ sale_state.customer_name }}"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="customer-options"
+            aria-expanded="false"
+            required
+          >
+          <div id="customer-options" class="customer-options is-hidden" role="listbox">
+            {% for customer in customers %}
+              <button
+                type="button"
+                class="customer-option"
+                id="customer-option-{{ customer.id }}"
+                role="option"
+                tabindex="-1"
+                data-id="{{ customer.id }}"
+                data-name="{{ customer.name }}"
+                data-display="{{ customer.name }}{% if customer.phone %} · {{ customer.phone }}{% endif %}{% if customer.tax_id %} · {{ customer.tax_id }}{% endif %}"
+                data-address="{{ customer.address }}"
+                data-phone="{{ customer.phone }}"
+                data-tax-id="{{ customer.tax_id }}"
+                data-contact-name="{{ customer.contact_name }}"
+                data-search="{{ customer.name }} {{ customer.contact_name }} {{ customer.phone }} {{ customer.email }} {{ customer.tax_id }}"
+              >
+                <strong>{{ customer.name }}</strong>
+                {% if customer.contact_name %}<span>Contacto: {{ customer.contact_name }}</span>{% endif %}
+                {% if customer.phone %}<span>Tel: {{ customer.phone }}</span>{% endif %}
+                {% if customer.tax_id %}<span>RFC: {{ customer.tax_id }}</span>{% endif %}
+                {% if customer.address %}<span>Dir: {{ customer.address }}</span>{% endif %}
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+        <div id="customer-selected-info" class="helper-text customer-selected-info" aria-live="polite"></div>
       </label>
-      <div><span>Total</span><strong id="sale-total">$0.00</strong></div>
-    </div>
 
-    <label>
-      Método de pago
-      {{ form.payment_method.errors }}
-      {{ form.payment_method }}
-    </label>
+      <label>
+        Dirección de envío
+        {{ form.shipping_address.errors }}
+        {{ form.shipping_address }}
+      </label>
 
-    <label>
-      Notas
-      {{ form.notes.errors }}
-      {{ form.notes }}
-    </label>
+      <label>
+        Método de pago
+        {{ form.payment_method.errors }}
+        {{ form.payment_method }}
+      </label>
 
-    <button class="primary-button" type="submit">Registrar venta</button>
+      <label>
+        Notas
+        {{ form.notes.errors }}
+        {{ form.notes }}
+      </label>
+
+      <button class="primary-button" type="submit">Registrar venta</button>
+    </section>
   </form>
 </section>
+{{ initial_cart_items|json_script:"sale-initial-cart" }}
 {% endblock %}
 
 {% block scripts %}

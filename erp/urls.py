@@ -27,4 +27,5 @@ urlpatterns = [
     path("configuracion/", views.settings_view, name="settings"),
     path("proveedor/", views.provider_dashboard, name="provider_dashboard"),
     path("proveedor/clientes/", views.provider_businesses, name="provider_businesses"),
+    path("proveedor/clientes/<int:business_id>/", views.provider_business_detail, name="provider_business_detail"),
 ]

@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 
-from .models import Business, BusinessMembership, Category, Customer, Plan, Product, SalePayment
+from .models import Business, BusinessMembership, Category, Customer, Plan, Product, ProviderPayment, SalePayment
 
 
 User = get_user_model()
@@ -154,6 +154,82 @@ class ProviderBusinessForm(forms.Form):
         return business, user
 
 
+class ProviderBusinessUpdateForm(forms.ModelForm):
+    class Meta:
+        model = Business
+        fields = [
+            "name",
+            "slug",
+            "owner_name",
+            "phone",
+            "email",
+            "tax_id",
+            "address",
+            "currency",
+            "plan",
+            "status",
+            "service_expires_at",
+            "notes",
+        ]
+        labels = {
+            "name": "Negocio",
+            "slug": "Slug",
+            "owner_name": "Responsable",
+            "phone": "Teléfono",
+            "email": "Correo del negocio",
+            "tax_id": "RFC",
+            "address": "Dirección",
+            "currency": "Moneda",
+            "plan": "Plan",
+            "status": "Estado",
+            "service_expires_at": "Vence",
+            "notes": "Notas internas",
+        }
+        widgets = {
+            "service_expires_at": forms.DateInput(attrs={"type": "date"}),
+            "address": forms.Textarea(attrs={"rows": 3}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["plan"].queryset = Plan.objects.filter(is_active=True).order_by("monthly_price", "name")
+
+    def clean_slug(self):
+        slug = self.cleaned_data["slug"]
+        qs = Business.objects.filter(slug=slug)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("Ese slug ya existe.")
+        return slug
+
+
+class ProviderPaymentForm(forms.ModelForm):
+    class Meta:
+        model = ProviderPayment
+        fields = ["amount", "paid_at", "method", "note"]
+        labels = {
+            "amount": "Monto",
+            "paid_at": "Fecha",
+            "method": "Método",
+            "note": "Nota",
+        }
+        widgets = {
+            "paid_at": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def clean_amount(self):
+        amount = self.cleaned_data["amount"]
+        if amount <= 0:
+            raise forms.ValidationError("El pago debe ser mayor a cero.")
+        return amount
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["paid_at"].initial = timezone.localdate
+
+
 class TenantUserForm(forms.Form):
     username = forms.CharField(label="Usuario", max_length=150)
     email = forms.EmailField(label="Correo electrónico", required=False)
@@ -299,6 +375,8 @@ class SpecializedSaleForm(forms.Form):
         self.business = business
         super().__init__(*args, **kwargs)
         self.fields["customer_id"].queryset = Customer.objects.filter(business=business, is_active=True).order_by("name")
+        self.fields["shipping_address"].widget.attrs.update({"rows": 2, "id": "shipping-address"})
+        self.fields["notes"].widget.attrs.update({"rows": 2})
 
     def clean_discount_total(self):
         return self.cleaned_data.get("discount_total") or 0

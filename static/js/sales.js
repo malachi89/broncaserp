@@ -1,8 +1,10 @@
 (function () {
   const productButtons = Array.from(document.querySelectorAll(".product-tile"));
   const searchInput = document.getElementById("sale-product-search");
+  const productSearchForm = document.getElementById("sale-product-search-form");
   const cartLines = document.getElementById("sale-cart-lines");
   const cartJson = document.getElementById("sale-cart-json");
+  const initialCartNode = document.getElementById("sale-initial-cart");
   const saleForm = document.getElementById("sale-form");
   const clearCart = document.getElementById("sale-clear-cart");
   const feedback = document.getElementById("sale-feedback");
@@ -11,15 +13,30 @@
   const generalDiscountInput = document.getElementById("sale-discount-total");
   const customerSearchInput = document.getElementById("customer-search");
   const customerIdInput = document.getElementById("customer-id");
-  const customerDatalist = document.getElementById("customer-options");
+  const customerOptions = document.getElementById("customer-options");
+  const customerSummary = document.getElementById("customer-selected-info");
   const shippingAddress = document.getElementById("shipping-address");
+  const paymentMethodInput = saleForm ? saleForm.querySelector('[name="payment_method"]') : null;
+  const notesInput = saleForm ? saleForm.querySelector('[name="notes"]') : null;
+  const searchStateCartJson = document.getElementById("sale-search-cart-json");
+  const searchStateCustomerId = document.getElementById("sale-search-customer-id");
+  const searchStateCustomerName = document.getElementById("sale-search-customer-name");
+  const searchStateShippingAddress = document.getElementById("sale-search-shipping-address");
+  const searchStatePaymentMethod = document.getElementById("sale-search-payment-method");
+  const searchStateNotes = document.getElementById("sale-search-notes");
+  const searchStateDiscountTotal = document.getElementById("sale-search-discount-total");
   const cart = new Map();
-  const customerRecords = customerDatalist
-    ? Array.from(customerDatalist.querySelectorAll("option")).map((option) => ({
+  const customerRecords = customerOptions
+    ? Array.from(customerOptions.querySelectorAll(".customer-option")).map((option) => ({
         id: option.dataset.id || "",
-        display: option.value || "",
+        name: (option.dataset.name || option.textContent || "").trim(),
+        display: (option.dataset.display || option.dataset.name || "").trim(),
         address: (option.dataset.address || "").trim(),
-        search: normalize(option.dataset.search || option.value || ""),
+        phone: (option.dataset.phone || "").trim(),
+        taxId: (option.dataset.taxId || "").trim(),
+        contactName: (option.dataset.contactName || "").trim(),
+        search: normalize(option.dataset.search || option.dataset.display || option.textContent || ""),
+        optionNode: option,
       }))
     : [];
   const selectedCustomerRecord = customerIdInput
@@ -28,6 +45,8 @@
   const customerState = {
     selectedAddress: selectedCustomerRecord ? selectedCustomerRecord.address : "",
     customAddressTyped: false,
+    filteredRecords: [],
+    activeIndex: -1,
   };
 
   function normalize(value) {
@@ -39,6 +58,61 @@
       style: "currency",
       currency: "MXN",
     }).format(value);
+  }
+
+  function parseInitialCartItems() {
+    if (!initialCartNode) return [];
+    try {
+      const parsed = JSON.parse(initialCartNode.textContent || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function hydrateCart() {
+    parseInitialCartItems().forEach((line) => {
+      const productId = Number(line.product_id);
+      const quantity = Number(line.quantity);
+      if (!productId || !quantity || quantity <= 0) return;
+      cart.set(productId, {
+        product: {
+          id: productId,
+          name: line.name || "",
+          barcode: line.barcode || "",
+          sku: line.sku || "",
+          price: Number(line.price || 0),
+          stock: Number(line.stock || 0),
+        },
+        quantity,
+        discount: Math.max(0, Number(line.discount || 0)),
+      });
+    });
+  }
+
+  function syncProductSearchState() {
+    if (!productSearchForm) return;
+    if (searchStateCartJson && cartJson) {
+      searchStateCartJson.value = cartJson.value || "[]";
+    }
+    if (searchStateCustomerId && customerIdInput) {
+      searchStateCustomerId.value = customerIdInput.value || "";
+    }
+    if (searchStateCustomerName && customerSearchInput) {
+      searchStateCustomerName.value = customerSearchInput.value || "";
+    }
+    if (searchStateShippingAddress && shippingAddress) {
+      searchStateShippingAddress.value = shippingAddress.value || "";
+    }
+    if (searchStatePaymentMethod && paymentMethodInput) {
+      searchStatePaymentMethod.value = paymentMethodInput.value || "";
+    }
+    if (searchStateNotes && notesInput) {
+      searchStateNotes.value = notesInput.value || "";
+    }
+    if (searchStateDiscountTotal && generalDiscountInput) {
+      searchStateDiscountTotal.value = generalDiscountInput.value || "0.00";
+    }
   }
 
   function showFeedback(message, level) {
@@ -53,6 +127,117 @@
     feedback.textContent = "";
     feedback.classList.add("is-hidden");
     feedback.classList.remove("error", "warn");
+  }
+
+  function updateCustomerSummary(customerRecord) {
+    if (!customerSummary) return;
+    customerSummary.replaceChildren();
+    if (!customerRecord) return;
+
+    const list = document.createElement("ul");
+    list.className = "customer-summary-list";
+
+    [
+      customerRecord.name,
+      customerRecord.contactName ? "Contacto: " + customerRecord.contactName : "",
+      customerRecord.phone ? "Teléfono: " + customerRecord.phone : "",
+      customerRecord.taxId ? "RFC: " + customerRecord.taxId : "",
+      customerRecord.address ? "Dirección registrada: " + customerRecord.address : "",
+    ]
+      .filter(Boolean)
+      .forEach((value) => {
+        const item = document.createElement("li");
+        item.textContent = value;
+        list.appendChild(item);
+      });
+
+    customerSummary.appendChild(list);
+  }
+
+  function findCustomerRecordByValue(value) {
+    const normalizedValue = normalize(value);
+    if (!normalizedValue) return null;
+
+    const exactRecord = customerRecords.find((record) => normalize(record.display) === normalizedValue);
+    if (exactRecord) return exactRecord;
+
+    const exactNameMatches = customerRecords.filter((record) => normalize(record.name) === normalizedValue);
+    if (exactNameMatches.length === 1) {
+      return exactNameMatches[0];
+    }
+
+    return null;
+  }
+
+  function closeCustomerOptions() {
+    if (!customerOptions || !customerSearchInput) return;
+    customerState.filteredRecords = [];
+    customerState.activeIndex = -1;
+    customerSearchInput.setAttribute("aria-expanded", "false");
+    customerSearchInput.removeAttribute("aria-activedescendant");
+    customerOptions.classList.add("is-hidden");
+    customerRecords.forEach((record) => {
+      record.optionNode.hidden = true;
+      record.optionNode.classList.remove("active");
+      record.optionNode.setAttribute("aria-selected", "false");
+    });
+  }
+
+  function setActiveCustomerOption(index) {
+    if (!customerSearchInput || !customerState.filteredRecords.length) return;
+    customerState.activeIndex = index;
+    customerState.filteredRecords.forEach((record, recordIndex) => {
+      const isActive = recordIndex === index;
+      record.optionNode.classList.toggle("active", isActive);
+      record.optionNode.setAttribute("aria-selected", isActive ? "true" : "false");
+      if (isActive) {
+        customerSearchInput.setAttribute("aria-activedescendant", record.optionNode.id);
+      }
+    });
+  }
+
+  function openCustomerOptions(query) {
+    if (!customerOptions || !customerSearchInput) return;
+    const normalizedQuery = normalize(query);
+    const filteredRecords = customerRecords
+      .filter((record) => !normalizedQuery || record.search.includes(normalizedQuery))
+      .slice(0, 8);
+
+    if (!filteredRecords.length) {
+      closeCustomerOptions();
+      return;
+    }
+
+    const visibleIds = new Set(filteredRecords.map((record) => record.id));
+    customerRecords.forEach((record) => {
+      const visible = visibleIds.has(record.id);
+      record.optionNode.hidden = !visible;
+      record.optionNode.classList.remove("active");
+      record.optionNode.setAttribute("aria-selected", "false");
+    });
+
+    customerState.filteredRecords = filteredRecords;
+    customerOptions.classList.remove("is-hidden");
+    customerSearchInput.setAttribute("aria-expanded", "true");
+    setActiveCustomerOption(0);
+  }
+
+  function selectCustomerRecord(customerRecord) {
+    if (!customerRecord || !customerIdInput || !customerSearchInput) return;
+    customerIdInput.value = customerRecord.id;
+    customerSearchInput.value = customerRecord.display;
+    updateCustomerSummary(customerRecord);
+    closeCustomerOptions();
+    const nextAddress = customerRecord.address;
+    const currentAddress = shippingAddress ? shippingAddress.value.trim() : "";
+    const shouldReplaceAddress =
+      !currentAddress || currentAddress === customerState.selectedAddress || !customerState.customAddressTyped;
+
+    if (shippingAddress && shouldReplaceAddress) {
+      shippingAddress.value = nextAddress;
+      customerState.customAddressTyped = false;
+    }
+    customerState.selectedAddress = nextAddress;
   }
 
   function productFromButton(button) {
@@ -108,35 +293,28 @@
 
   function selectedCustomerRecordFromInput() {
     if (!customerSearchInput || !customerIdInput) return null;
-    const value = normalize(customerSearchInput.value);
-    if (!value) {
+    if (!normalize(customerSearchInput.value)) {
       customerIdInput.value = "";
+      updateCustomerSummary(null);
       return null;
     }
 
-    const exactRecord = customerRecords.find((record) => normalize(record.display) === value);
-    if (exactRecord) {
-      customerIdInput.value = exactRecord.id;
-      return exactRecord;
+    const customerRecord = findCustomerRecordByValue(customerSearchInput.value);
+    if (customerRecord) {
+      customerIdInput.value = customerRecord.id;
+      updateCustomerSummary(customerRecord);
+      return customerRecord;
     }
 
     customerIdInput.value = "";
+    updateCustomerSummary(null);
     return null;
   }
 
   function updateShippingAddress() {
-    if (!shippingAddress) return;
     const customerRecord = selectedCustomerRecordFromInput();
     if (!customerRecord) return;
-    const nextAddress = customerRecord.address;
-    const currentAddress = shippingAddress.value.trim();
-    const shouldReplaceAddress =
-      !currentAddress || currentAddress === customerState.selectedAddress || !customerState.customAddressTyped;
-
-    if (!shouldReplaceAddress) return;
-    shippingAddress.value = nextAddress;
-    customerState.selectedAddress = nextAddress;
-    customerState.customAddressTyped = false;
+    selectCustomerRecord(customerRecord);
   }
 
   function renderCart() {
@@ -250,10 +428,89 @@
     }
   });
 
-  if (customerSearchInput) {
-    customerSearchInput.addEventListener("input", updateShippingAddress);
-    customerSearchInput.addEventListener("change", updateShippingAddress);
+  if (productSearchForm) {
+    productSearchForm.addEventListener("submit", () => {
+      syncProductSearchState();
+    });
   }
+
+  if (customerSearchInput) {
+    customerSearchInput.addEventListener("focus", () => {
+      if (customerRecords.length) {
+        openCustomerOptions(customerSearchInput.value);
+      }
+    });
+    customerSearchInput.addEventListener("input", () => {
+      const exactRecord = findCustomerRecordByValue(customerSearchInput.value);
+      if (exactRecord) {
+        customerIdInput.value = exactRecord.id;
+        updateCustomerSummary(exactRecord);
+      } else if (customerIdInput) {
+        customerIdInput.value = "";
+        updateCustomerSummary(null);
+      }
+      openCustomerOptions(customerSearchInput.value);
+    });
+    customerSearchInput.addEventListener("change", updateShippingAddress);
+    customerSearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        if (!customerState.filteredRecords.length) {
+          openCustomerOptions(customerSearchInput.value);
+        }
+        if (customerState.filteredRecords.length) {
+          event.preventDefault();
+          const nextIndex = (customerState.activeIndex + 1) % customerState.filteredRecords.length;
+          setActiveCustomerOption(nextIndex);
+        }
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        if (!customerState.filteredRecords.length) {
+          openCustomerOptions(customerSearchInput.value);
+        }
+        if (customerState.filteredRecords.length) {
+          event.preventDefault();
+          const nextIndex =
+            (customerState.activeIndex - 1 + customerState.filteredRecords.length) % customerState.filteredRecords.length;
+          setActiveCustomerOption(nextIndex);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        closeCustomerOptions();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      const activeRecord =
+        customerState.filteredRecords[customerState.activeIndex] ||
+        findCustomerRecordByValue(customerSearchInput.value) ||
+        customerState.filteredRecords[0];
+      if (!activeRecord) return;
+      event.preventDefault();
+      selectCustomerRecord(activeRecord);
+    });
+  }
+
+  if (customerOptions) {
+    customerOptions.addEventListener("mousedown", (event) => {
+      const option = event.target.closest(".customer-option");
+      if (option) {
+        event.preventDefault();
+      }
+    });
+    customerOptions.addEventListener("click", (event) => {
+      const option = event.target.closest(".customer-option");
+      if (!option) return;
+      const customerRecord = customerRecords.find((record) => record.optionNode === option);
+      selectCustomerRecord(customerRecord);
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (!customerSearchInput || !customerOptions) return;
+    if (customerSearchInput.contains(event.target) || customerOptions.contains(event.target)) return;
+    closeCustomerOptions();
+  });
 
   if (shippingAddress) {
     shippingAddress.addEventListener("input", () => {
@@ -284,6 +541,14 @@
     customerSearchInput.value = selectedCustomerRecord.display;
   }
 
-  updateShippingAddress();
+  hydrateCart();
+  updateCustomerSummary(selectedCustomerRecord || selectedCustomerRecordFromInput());
+  if (selectedCustomerRecord) {
+    customerState.selectedAddress = selectedCustomerRecord.address;
+  } else {
+    updateShippingAddress();
+  }
+  closeCustomerOptions();
   renderCart();
+  syncProductSearchState();
 })();

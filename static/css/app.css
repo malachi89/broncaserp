@@ -284,7 +284,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(220px, 0.77fr) minmax(320px, 1.43fr) minmax(280px, 0.9fr);
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 .pos-products,
@@ -292,7 +292,8 @@ h2 {
 .pos-payment {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 170px);
+  height: calc(100dvh - 170px);
+  min-height: 0;
 }
 
 .cash-session-inline {
@@ -348,8 +349,92 @@ h2 {
 
 .sale-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(280px, 1.05fr) minmax(0, 1.2fr) minmax(320px, 0.9fr);
   gap: 1rem;
+  align-items: stretch;
+}
+
+.sale-form-column {
+  display: contents;
+}
+
+.sale-cart-panel,
+.sale-customer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sale-layout > .panel,
+.sale-cart-panel,
+.sale-customer-panel,
+.pos-products {
+  height: calc(100dvh - 170px);
+  min-height: 0;
+}
+
+.sale-customer-panel .search-input {
+  margin-bottom: 0.65rem;
+}
+
+.sale-customer-panel textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.sale-customer-panel .primary-button {
+  margin-top: auto;
+}
+
+.customer-autocomplete {
+  position: relative;
+}
+
+.customer-options {
+  position: absolute;
+  top: calc(100% - 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0.45rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.customer-option {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.65rem 0.72rem;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.customer-option strong,
+.customer-option span {
+  display: block;
+}
+
+.customer-option span {
+  margin-top: 0.12rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.customer-option.active,
+.customer-option:hover {
+  border-color: #bdd5d3;
+  background: #f2f8f8;
 }
 
 .search-input {
@@ -411,9 +496,13 @@ h2 {
 }
 
 .sale-cart-lines {
-  min-height: 220px;
+  flex: 1;
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: 0.6rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .sale-cart-lines-head {
@@ -525,6 +614,7 @@ h2 {
   padding: 1rem 0;
   border-top: 2px solid var(--line);
   border-bottom: 2px solid var(--line);
+  flex-shrink: 0;
 }
 
 .sale-summary div {
@@ -766,6 +856,26 @@ th {
     min-width: 118px;
     max-width: 148px;
   }
+
+  .sale-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sale-layout > .panel,
+  .sale-cart-panel,
+  .sale-customer-panel,
+  .pos-products {
+    height: auto;
+  }
+
+  .sale-cart-panel,
+  .sale-customer-panel {
+    overflow: visible;
+  }
+
+  .sale-cart-lines {
+    min-height: 220px;
+  }
 }
 
 .inline-form input,
@@ -977,6 +1087,22 @@ th {
 .helper-text {
   margin: 0;
   color: var(--muted);
+}
+
+.customer-selected-info {
+  margin-top: 0.4rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  min-height: 2.6em;
+}
+
+.customer-summary-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.customer-summary-list li + li {
+  margin-top: 0.18rem;
 }
 
 .permission-grid {
@@ -1210,6 +1336,16 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .sale-layout > .panel {
+    height: auto;
+  }
+
+  .sale-cart-panel,
+  .sale-customer-panel,
+  .pos-products {
+    height: auto;
+  }
+
   .membership-summary {
     flex-direction: column;
   }
@@ -1226,6 +1362,7 @@ th {
   .pos-products,
   .pos-ticket,
   .pos-payment {
+    height: auto;
     max-height: none;
   }
 

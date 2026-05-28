@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -18,6 +19,7 @@ from .models import (
     InventoryMovement,
     Plan,
     Product,
+    ProviderPayment,
     Sale,
     SalePayment,
     UserSecurity,
@@ -974,19 +976,86 @@ class ErpDomainTests(TestCase):
         self.assertContains(credits_response, "No tienes acceso a este módulo.")
 
     def test_new_sale_page_includes_customer_search_input(self):
+        customer = Customer.objects.create(
+            business=self.business,
+            name="Cafeteria Luna",
+            contact_name="Ana Perez",
+            phone="5512345678",
+            tax_id="COSC8001137NA",
+            address="Calle 10 #123",
+        )
         client = Client()
         self.assertTrue(client.login(username="cajero", password="secret123"))
 
         response = client.get(reverse("new_sale"))
 
+        self.assertContains(response, "Carrito")
+        self.assertContains(response, "Cliente y pago")
+        self.assertContains(response, "sale-form-column", html=False)
+        self.assertContains(response, "sale-cart-panel", html=False)
+        self.assertContains(response, "sale-customer-panel", html=False)
         self.assertContains(response, 'id="customer-search"', html=False)
         self.assertContains(response, 'id="customer-options"', html=False)
+        self.assertContains(response, 'id="customer-selected-info"', html=False)
         self.assertContains(response, 'type="hidden" name="customer_id"', html=False)
+        self.assertContains(response, f'data-phone="{customer.phone}"', html=False)
+        self.assertContains(response, f'data-tax-id="{customer.tax_id}"', html=False)
+        self.assertContains(response, "RFC: COSC8001137NA", html=False)
+        self.assertContains(response, "Tel: 5512345678", html=False)
         self.assertContains(response, "Cantidad")
         self.assertContains(response, "Descuento")
         self.assertContains(response, "Notas")
         self.assertNotContains(response, "Nota para cliente")
         self.assertNotContains(response, "Nota interna")
+
+    def test_new_sale_product_search_preserves_customer_and_cart_state(self):
+        customer = Customer.objects.create(
+            business=self.business,
+            name="Cafeteria Luna",
+            contact_name="Ana Perez",
+            phone="5512345678",
+            tax_id="COSC8001137NA",
+            address="Calle 10 #123",
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.get(
+            reverse("new_sale"),
+            {
+                "q": self.product.name,
+                "customer_id": str(customer.id),
+                "customer_name": f"{customer.name} · {customer.phone} · {customer.tax_id}",
+                "shipping_address": "Sucursal Centro",
+                "payment_method": SalePayment.Method.TRANSFER,
+                "notes": "Entregar hoy",
+                "discount_total": "5.50",
+                "cart_json": json.dumps(
+                    [
+                        {
+                            "product_id": self.product.id,
+                            "quantity": 2,
+                            "unit_price": "14.00",
+                            "discount_amount": "1.50",
+                        }
+                    ]
+                ),
+            },
+        )
+
+        self.assertContains(response, f'id="customer-id" value="{customer.id}"', html=False)
+        self.assertContains(response, f'value="{customer.name} · {customer.phone} · {customer.tax_id}"', html=False)
+        self.assertContains(response, 'id="sale-search-cart-json"', html=False)
+        self.assertContains(response, 'id="sale-initial-cart"', html=False)
+        self.assertContains(response, '"product_id": %s' % self.product.id, html=False)
+        self.assertContains(response, '"quantity": 2.0', html=False)
+        self.assertContains(response, '"discount": 1.5', html=False)
+        self.assertContains(response, 'name="shipping_address"', html=False)
+        self.assertContains(response, "Sucursal Centro")
+        self.assertContains(response, 'name="notes"', html=False)
+        self.assertContains(response, "Entregar hoy")
+        self.assertContains(response, 'value="5.50"', html=False)
+        self.assertContains(response, f'<option value="{SalePayment.Method.TRANSFER}" selected>', html=False)
 
     def test_specialized_sale_documents_render(self):
         customer = Customer.objects.create(business=self.business, name="Cafeteria Luna")
@@ -1233,6 +1302,115 @@ class ErpDomainTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_provider_console_uses_administration_label(self):
+        provider = User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.get(reverse("provider_dashboard"))
+
+        self.assertContains(response, "Administración")
+        self.assertNotContains(response, "Dashboard del Proveedor")
+
+    def test_provider_business_detail_manages_account_and_audits_change(self):
+        provider = User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "update_business",
+                "business-name": "Abarrotes Lupita Centro",
+                "business-slug": "lupita-centro",
+                "business-owner_name": "Lupita Garcia",
+                "business-phone": "5511112222",
+                "business-email": "lupita@example.com",
+                "business-tax_id": "LUGA800101AA1",
+                "business-address": "Calle Central 1",
+                "business-currency": "MXN",
+                "business-plan": str(self.plan.id),
+                "business-status": Business.Status.PAST_DUE,
+                "business-service_expires_at": str(timezone.localdate()),
+                "business-notes": "Revisar renovación",
+            },
+        )
+
+        self.assertRedirects(response, reverse("provider_business_detail", args=[self.business.id]))
+        self.business.refresh_from_db()
+        self.assertEqual(self.business.name, "Abarrotes Lupita Centro")
+        self.assertEqual(self.business.status, Business.Status.PAST_DUE)
+        self.assertTrue(AuditLog.objects.filter(action="provider.business_updated", business=self.business).exists())
+
+    def test_provider_business_detail_can_create_user_expire_password_and_record_payment(self):
+        provider = User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        create_response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "create_user",
+                "create-username": "soporte-caja",
+                "create-email": "soporte@example.com",
+                "create-password": "temporal123",
+                "create-can_access_pos": "on",
+                "create-is_active": "on",
+            },
+        )
+
+        self.assertRedirects(create_response, reverse("provider_business_detail", args=[self.business.id]))
+        membership = BusinessMembership.objects.get(business=self.business, user__username="soporte-caja")
+        self.assertTrue(membership.can_access_pos)
+        self.assertTrue(AuditLog.objects.filter(action="provider.user_created", business=self.business).exists())
+
+        expire_response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "expire_password",
+                "membership_id": str(membership.id),
+            },
+        )
+
+        self.assertRedirects(expire_response, reverse("provider_business_detail", args=[self.business.id]))
+        membership.user.password_security.refresh_from_db()
+        self.assertTrue(membership.user.password_security.must_change_password)
+        self.assertTrue(AuditLog.objects.filter(action="provider.user_password_expired", business=self.business).exists())
+
+        payment_response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "payment",
+                "payment-amount": "399.00",
+                "payment-paid_at": str(timezone.localdate()),
+                "payment-method": "Transferencia",
+                "payment-note": "Mensualidad",
+            },
+        )
+
+        self.assertRedirects(payment_response, reverse("provider_business_detail", args=[self.business.id]))
+        payment = ProviderPayment.objects.get(business=self.business)
+        self.assertEqual(payment.amount, Decimal("399.00"))
+        self.assertTrue(AuditLog.objects.filter(action="provider.payment_created", object_id=str(payment.id)).exists())
+
+    def test_provider_business_detail_cannot_edit_owner_membership(self):
+        provider = User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "update_membership",
+                "membership_id": str(self.owner_membership.id),
+                f"member-{self.owner_membership.id}-can_access_pos": "on",
+                f"member-{self.owner_membership.id}-is_active": "on",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "El usuario propietario no se edita desde Administración.")
 
 
 class QuantityFormatTemplateFilterTests(SimpleTestCase):

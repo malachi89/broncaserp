@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block page_title %}Dashboard del Proveedor{% endblock %}
+{% block page_title %}Administración{% endblock %}
 
 {% block content %}
 <section class="metric-grid">
   <article class="metric-card"><span>Clientes</span><strong>{{ totals.businesses }}</strong><small>Total</small></article>
   <article class="metric-card"><span>Activos</span><strong>{{ totals.active }}</strong><small>Operando</small></article>
   <article class="metric-card"><span>Vencidos</span><strong>{{ totals.past_due }}</strong><small>Revisar cobranza</small></article>
-  <article class="metric-card"><span>Pagos mes</span><strong>${{ totals.monthly_payments }}</strong><small>Manual</small></article>
+  <article class="metric-card"><span>Pagos mes</span><strong>${{ totals.monthly_payments }}</strong><small>Registrados</small></article>
 </section>
 
 <section class="panel">
@@ -21,7 +21,7 @@
       <tbody>
         {% for business in recent_businesses %}
           <tr>
-            <td>{{ business.name }}</td>
+            <td><a class="text-link" href="{% url 'provider_business_detail' business.id %}">{{ business.name }}</a></td>
             <td>{{ business.plan.name|default:"Sin plan" }}</td>
             <td>{{ business.get_status_display }}</td>
             <td>{{ business.service_expires_at|default:"-" }}</td>
