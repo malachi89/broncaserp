@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
@@ -96,7 +97,6 @@ class CustomerForm(forms.ModelForm):
 
 class ProviderBusinessForm(forms.Form):
     business_name = forms.CharField(label="Negocio", max_length=140)
-    slug = forms.SlugField(label="Slug", max_length=60, required=False)
     owner_name = forms.CharField(label="Responsable", max_length=140, required=False)
     phone = forms.CharField(label="Teléfono", max_length=40, required=False)
     email = forms.EmailField(label="Correo del negocio", required=False)
@@ -111,10 +111,20 @@ class ProviderBusinessForm(forms.Form):
     owner_email = forms.EmailField(label="Correo del dueño", required=False)
     owner_password = forms.CharField(label="Contraseña temporal", widget=forms.PasswordInput)
 
-    def clean_slug(self):
-        slug = self.cleaned_data.get("slug") or slugify(self.cleaned_data.get("business_name", ""))
-        if Business.objects.filter(slug=slug).exists():
-            raise forms.ValidationError("Ese slug ya existe.")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("email", "owner_email"):
+            self.fields[field_name].required = False
+            self.fields[field_name].widget.attrs.pop("required", None)
+
+    def generated_slug(self):
+        base_slug = slugify(self.cleaned_data.get("business_name", ""))[:60] or "negocio"
+        slug = base_slug
+        suffix = 2
+        while Business.objects.filter(slug=slug).exists():
+            suffix_text = f"-{suffix}"
+            slug = f"{base_slug[: max(1, 60 - len(suffix_text))]}{suffix_text}"
+            suffix += 1
         return slug
 
     def clean_owner_username(self):
@@ -126,7 +136,7 @@ class ProviderBusinessForm(forms.Form):
     def save(self, created_by):
         business = Business.objects.create(
             name=self.cleaned_data["business_name"],
-            slug=self.cleaned_data["slug"],
+            slug=self.generated_slug(),
             owner_name=self.cleaned_data.get("owner_name", ""),
             phone=self.cleaned_data.get("phone", ""),
             email=self.cleaned_data.get("email", ""),
@@ -159,7 +169,6 @@ class ProviderBusinessUpdateForm(forms.ModelForm):
         model = Business
         fields = [
             "name",
-            "slug",
             "owner_name",
             "phone",
             "email",
@@ -173,7 +182,6 @@ class ProviderBusinessUpdateForm(forms.ModelForm):
         ]
         labels = {
             "name": "Negocio",
-            "slug": "Slug",
             "owner_name": "Responsable",
             "phone": "Teléfono",
             "email": "Correo del negocio",
@@ -194,15 +202,6 @@ class ProviderBusinessUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["plan"].queryset = Plan.objects.filter(is_active=True).order_by("monthly_price", "name")
-
-    def clean_slug(self):
-        slug = self.cleaned_data["slug"]
-        qs = Business.objects.filter(slug=slug)
-        if self.instance.pk:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise forms.ValidationError("Ese slug ya existe.")
-        return slug
 
 
 class ProviderPaymentForm(forms.ModelForm):
@@ -362,6 +361,24 @@ class MembershipAccessForm(forms.ModelForm):
             raise forms.ValidationError("Debe quedar al menos un usuario propietario o administrador activo.")
 
         return cleaned_data
+
+
+class TemporaryPasswordResetForm(forms.Form):
+    temporary_password = forms.CharField(label="Contraseña temporal", widget=forms.PasswordInput)
+
+    def __init__(self, *args, user=None, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_temporary_password(self):
+        password = self.cleaned_data["temporary_password"]
+        validate_password(password, self.user)
+        return password
+
+    def save(self):
+        self.user.set_password(self.cleaned_data["temporary_password"])
+        self.user.save(update_fields=["password"])
+        return self.user
 
 
 class SpecializedSaleForm(forms.Form):

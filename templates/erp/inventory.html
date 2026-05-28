@@ -51,6 +51,8 @@
           {% empty %}
             {% if query %}
               <tr><td colspan="5">Sin resultados para "{{ query }}".</td></tr>
+            {% else %}
+              <tr><td colspan="5">Escribe una búsqueda para ver productos.</td></tr>
             {% endif %}
           {% endfor %}
         </tbody>

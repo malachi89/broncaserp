@@ -24,6 +24,7 @@ from .forms import (
     ProviderPaymentForm,
     SpecializedSaleForm,
     TenantUserForm,
+    TemporaryPasswordResetForm,
 )
 from .models import (
     Business,
@@ -106,11 +107,20 @@ def preferred_landing_url_name(membership):
     return membership.preferred_landing_url_name
 
 
-def build_membership_rows(request, memberships, can_manage_users, bound_form=None):
+def build_membership_rows(request, memberships, can_manage_users, bound_form=None, bound_reset_form=None):
     rows = []
     for membership in memberships:
         password_security = getattr(membership.user, "password_security", None)
         form = None
+        reset_form = None
+        if can_manage_users:
+            if bound_reset_form is not None and bound_reset_form.user.pk == membership.user_id:
+                reset_form = bound_reset_form
+            else:
+                reset_form = TemporaryPasswordResetForm(
+                    user=membership.user,
+                    prefix=f"reset-{membership.id}",
+                )
         if can_manage_users and not membership.is_owner:
             if bound_form is not None and bound_form.instance.pk == membership.pk:
                 form = bound_form
@@ -124,6 +134,7 @@ def build_membership_rows(request, memberships, can_manage_users, bound_form=Non
             {
                 "membership": membership,
                 "form": form,
+                "reset_form": reset_form,
                 "editable": form is not None,
                 "must_change_password": bool(password_security and password_security.must_change_password),
             }
@@ -332,6 +343,7 @@ def pos(request):
                 customer_id=request.POST.get("customer_id") or None,
                 tendered_amount=request.POST.get("tendered_amount"),
                 request_nonce=request.POST.get("request_nonce"),
+                require_open_cash_session=True,
             )
             if sale.has_manual_price_override:
                 messages.success(request, f"Venta {sale.folio} registrada por ${sale.total}. Se aplicó precio manual en una o más líneas.")
@@ -867,6 +879,7 @@ def settings_view(request):
     memberships = request.business.memberships.select_related("user", "user__password_security").order_by("-is_owner", "-is_admin", "user__username")
     create_user_form = TenantUserForm(business=request.business, prefix="create")
     membership_form = None
+    reset_password_form = None
     action = ""
 
     if request.method == "POST":
@@ -910,6 +923,34 @@ def settings_view(request):
             )
             messages.success(request, f"La contraseña de {membership.user.username} fue caducada.")
             return redirect("settings")
+        elif action == "reset_password":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user", "user__password_security"),
+                pk=request.POST.get("membership_id"),
+                business=request.business,
+            )
+            reset_password_form = TemporaryPasswordResetForm(
+                request.POST,
+                user=membership.user,
+                prefix=f"reset-{membership.id}",
+            )
+            if reset_password_form.is_valid():
+                reset_password_form.save()
+                user_security, _created = UserSecurity.objects.get_or_create(user=membership.user)
+                user_security.expire_password()
+                AuditLog.objects.create(
+                    business=request.business,
+                    actor=request.user,
+                    action="user.password_reset_by_manager",
+                    object_type="User",
+                    object_id=str(membership.user.id),
+                    detail={
+                        "membership_id": membership.id,
+                        "username": membership.user.username,
+                    },
+                )
+                messages.success(request, f"Se asignó una contraseña temporal a {membership.user.username}.")
+                return redirect("settings")
         elif action == "update_membership":
             membership = get_object_or_404(
                 BusinessMembership.objects.select_related("user"),
@@ -939,6 +980,7 @@ def settings_view(request):
         memberships,
         can_manage_users,
         bound_form=membership_form if action == "update_membership" else None,
+        bound_reset_form=reset_password_form if action == "reset_password" else None,
     )
     return render(
         request,
@@ -996,7 +1038,7 @@ def provider_businesses(request):
                     {"owner_user_id": user.id, "owner_username": user.username},
                 )
                 messages.success(request, f"Cliente {business.name} creado con usuario {user.username}.")
-                return redirect("provider_business_detail", business_id=business.id)
+                return redirect("provider_businesses")
         elif action == "update":
             business = get_object_or_404(Business, pk=request.POST.get("business_id"))
             business.status = request.POST.get("status", business.status)
@@ -1080,6 +1122,7 @@ def provider_business_detail(request, business_id):
     payment_form = ProviderPaymentForm(prefix="payment")
     create_user_form = TenantUserForm(business=business, prefix="create")
     membership_form = None
+    reset_password_form = None
     action = ""
 
     if request.method == "POST":
@@ -1151,6 +1194,31 @@ def provider_business_detail(request, business_id):
             )
             messages.success(request, f"La contraseña de {membership.user.username} fue caducada.")
             return redirect("provider_business_detail", business_id=business.id)
+        elif action == "reset_password":
+            membership = get_object_or_404(
+                BusinessMembership.objects.select_related("user", "user__password_security"),
+                pk=request.POST.get("membership_id"),
+                business=business,
+            )
+            reset_password_form = TemporaryPasswordResetForm(
+                request.POST,
+                user=membership.user,
+                prefix=f"reset-{membership.id}",
+            )
+            if reset_password_form.is_valid():
+                reset_password_form.save()
+                user_security, _created = UserSecurity.objects.get_or_create(user=membership.user)
+                user_security.expire_password()
+                provider_audit(
+                    request,
+                    business,
+                    "provider.user_password_reset_by_manager",
+                    "User",
+                    membership.user_id,
+                    {"membership_id": membership.id, "username": membership.user.username},
+                )
+                messages.success(request, f"Se asignó una contraseña temporal a {membership.user.username}.")
+                return redirect("provider_business_detail", business_id=business.id)
         elif action == "update_membership":
             membership = get_object_or_404(
                 BusinessMembership.objects.select_related("user"),
@@ -1189,6 +1257,7 @@ def provider_business_detail(request, business_id):
         memberships,
         True,
         bound_form=membership_form if action == "update_membership" else None,
+        bound_reset_form=reset_password_form if action == "reset_password" else None,
     )
     payments = business.provider_payments.select_related("created_by")[:10]
 

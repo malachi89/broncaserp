@@ -93,6 +93,20 @@ label {
   margin-bottom: 0.75rem;
 }
 
+.sidebar-header-title {
+  min-width: 0;
+  flex: 1;
+  padding: 0.4rem 0.2rem 1rem;
+}
+
+.sidebar-header-title strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -120,6 +134,7 @@ label {
 }
 
 .shell.sidebar-collapsed .brand,
+.shell.sidebar-collapsed .sidebar-header-title,
 .shell.sidebar-collapsed .nav {
   display: none;
 }
@@ -137,6 +152,11 @@ label {
 .sidebar-footer {
   margin-top: auto;
   padding-top: 1rem;
+}
+
+.brand-footer {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0;
 }
 
 .sidebar-logout-form {
@@ -1215,6 +1235,16 @@ th {
 .membership-inline-action .small-button,
 .membership-details > summary {
   min-height: 42px;
+}
+
+.membership-reset-form {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 220px;
+}
+
+.membership-reset-form input {
+  width: 100%;
 }
 
 .danger-button {

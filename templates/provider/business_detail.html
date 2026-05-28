@@ -178,6 +178,20 @@
                   {% elif row.membership.is_owner %}
                     <span class="helper-text">Propietario</span>
                   {% endif %}
+                  <details class="membership-details"{% if row.reset_form.is_bound and row.reset_form.errors %} open{% endif %}>
+                    <summary class="ghost-button">Reset temporal</summary>
+                    <form method="post" class="membership-reset-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="reset_password">
+                      <input type="hidden" name="membership_id" value="{{ row.membership.id }}">
+                      <label>
+                        {{ row.reset_form.temporary_password }}
+                        {{ row.reset_form.temporary_password.errors }}
+                      </label>
+                      <p class="helper-text">Define una contraseña temporal y obliga cambio al entrar.</p>
+                      <button class="small-button" type="submit">Guardar temporal</button>
+                    </form>
+                  </details>
                   <form method="post" class="inline-form membership-inline-action">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="expire_password">

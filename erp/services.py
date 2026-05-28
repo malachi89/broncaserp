@@ -403,6 +403,7 @@ def create_pos_sale(
     customer_id=None,
     tendered_amount=None,
     request_nonce="",
+    require_open_cash_session=False,
 ):
     ensure_business_can_operate(business)
     request_nonce = normalize_request_nonce(request_nonce)
@@ -412,7 +413,7 @@ def create_pos_sale(
             return existing_sale
 
     cash_session = current_cash_session(business, user)
-    if cash_session is None:
+    if require_open_cash_session and cash_session is None:
         raise ValidationError("Debes abrir la caja antes de registrar ventas.")
 
     payment_method = normalize_payment_method(payment_method)

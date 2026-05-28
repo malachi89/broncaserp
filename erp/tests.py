@@ -528,9 +528,13 @@ class ErpDomainTests(TestCase):
 
         response = client.get(reverse("pos"))
 
+        self.assertContains(response, 'class="sidebar-header-title"', html=False)
+        self.assertContains(response, f'<h1>{self.business.name}</h1>', html=False)
+        self.assertContains(response, '<p class="eyebrow">Punto de Venta</p>', html=False)
         self.assertContains(response, "Cerrar sesión")
         self.assertNotContains(response, ">Salir<", html=False)
         self.assertContains(response, 'class="sidebar-logout-button"', html=False)
+        self.assertContains(response, 'class="brand brand-footer"', html=False)
 
     def test_dashboard_requires_manual_queries(self):
         client = Client()
@@ -839,6 +843,54 @@ class ErpDomainTests(TestCase):
         self.assertContains(change_response, "Contraseña actualizada.")
         self.assertFalse(target_user.password_security.must_change_password)
         self.assertTrue(target_user.check_password("nueva12345"))
+
+    def test_settings_can_reset_user_password_temporarily_and_force_change(self):
+        target_user = User.objects.create_user(username="temporal-reset", password="secret123")
+        target_membership = BusinessMembership.objects.create(
+            business=self.business,
+            user=target_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="cajero", password="secret123"))
+
+        response = client.post(
+            reverse("settings"),
+            {
+                "action": "reset_password",
+                "membership_id": target_membership.id,
+                f"reset-{target_membership.id}-temporary_password": "claveTmp789",
+            },
+            follow=True,
+        )
+
+        target_user.refresh_from_db()
+        self.assertContains(response, "Se asignó una contraseña temporal a temporal-reset.")
+        self.assertTrue(target_user.password_security.must_change_password)
+        self.assertFalse(Client().login(username="temporal-reset", password="secret123"))
+
+        temp_client = Client()
+        self.assertTrue(temp_client.login(username="temporal-reset", password="claveTmp789"))
+
+        redirected = temp_client.get(reverse("dashboard"), follow=True)
+        self.assertContains(redirected, "Cambiar contraseña")
+        self.assertNotContains(redirected, "Contraseña actual")
+
+        change_response = temp_client.post(
+            reverse("password_change"),
+            {
+                "new_password1": "nueva12345",
+                "new_password2": "nueva12345",
+            },
+            follow=True,
+        )
+
+        target_user.refresh_from_db()
+        self.assertContains(change_response, "Contraseña actualizada.")
+        self.assertFalse(target_user.password_security.must_change_password)
+        self.assertTrue(target_user.check_password("nueva12345"))
+        self.assertTrue(AuditLog.objects.filter(action="user.password_reset_by_manager", business=self.business).exists())
 
     def test_password_change_preserves_active_business_context(self):
         hybrid_user = User.objects.create_user(username="multi", password="secret123")
@@ -1311,7 +1363,11 @@ class ErpDomainTests(TestCase):
         response = client.get(reverse("provider_dashboard"))
 
         self.assertContains(response, "Administración")
+        self.assertContains(response, "<strong>El Broncas</strong>", html=False)
+        self.assertContains(response, "<small>ERP</small>", html=False)
         self.assertNotContains(response, "Dashboard del Proveedor")
+        self.assertNotContains(response, "Django Admin")
+        self.assertNotContains(response, 'class="sidebar-header-title"', html=False)
 
     def test_provider_business_detail_manages_account_and_audits_change(self):
         provider = User.objects.create_superuser(username="dueno", password="secret123")
@@ -1323,7 +1379,6 @@ class ErpDomainTests(TestCase):
             {
                 "action": "update_business",
                 "business-name": "Abarrotes Lupita Centro",
-                "business-slug": "lupita-centro",
                 "business-owner_name": "Lupita Garcia",
                 "business-phone": "5511112222",
                 "business-email": "lupita@example.com",
@@ -1342,6 +1397,85 @@ class ErpDomainTests(TestCase):
         self.assertEqual(self.business.name, "Abarrotes Lupita Centro")
         self.assertEqual(self.business.status, Business.Status.PAST_DUE)
         self.assertTrue(AuditLog.objects.filter(action="provider.business_updated", business=self.business).exists())
+
+    def test_provider_business_create_redirects_to_list_and_shows_new_customer(self):
+        User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.post(
+            reverse("provider_businesses"),
+            {
+                "action": "create",
+                "business_name": "Papeleria Centro",
+                "owner_name": "Marta Lopez",
+                "phone": "5512340000",
+                "email": "papeleria@example.com",
+                "plan": str(self.plan.id),
+                "service_expires_at": str(timezone.localdate()),
+                "owner_username": "papeleria-owner",
+                "owner_email": "owner@example.com",
+                "owner_password": "temporal123",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.request["PATH_INFO"], reverse("provider_businesses"))
+        self.assertContains(response, "Papeleria Centro")
+        self.assertTrue(Business.objects.filter(name="Papeleria Centro").exists())
+        self.assertTrue(AuditLog.objects.filter(action="provider.business_created").exists())
+
+    def test_provider_business_create_allows_blank_emails(self):
+        User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.post(
+            reverse("provider_businesses"),
+            {
+                "action": "create",
+                "business_name": "Tortilleria Norte",
+                "owner_name": "Jose Ramirez",
+                "phone": "5512000000",
+                "email": "",
+                "plan": str(self.plan.id),
+                "service_expires_at": str(timezone.localdate()),
+                "owner_username": "torti-owner",
+                "owner_email": "",
+                "owner_password": "temporal123",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.request["PATH_INFO"], reverse("provider_businesses"))
+        business = Business.objects.get(name="Tortilleria Norte")
+        self.assertEqual(business.email, "")
+        self.assertEqual(business.memberships.get(is_owner=True).user.email, "")
+
+    def test_provider_business_create_generates_unique_slug_automatically(self):
+        User.objects.create_superuser(username="dueno", password="secret123")
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        for username in ("negocio-uno", "negocio-dos"):
+            client.post(
+                reverse("provider_businesses"),
+                {
+                    "action": "create",
+                    "business_name": "Mini Super",
+                    "owner_name": "Encargado",
+                    "phone": "5512000000",
+                    "email": "",
+                    "plan": str(self.plan.id),
+                    "service_expires_at": str(timezone.localdate()),
+                    "owner_username": username,
+                    "owner_email": "",
+                    "owner_password": "temporal123",
+                },
+            )
+
+        slugs = list(Business.objects.filter(name="Mini Super").order_by("slug").values_list("slug", flat=True))
+        self.assertEqual(slugs, ["mini-super", "mini-super-2"])
 
     def test_provider_business_detail_can_create_user_expire_password_and_record_payment(self):
         provider = User.objects.create_superuser(username="dueno", password="secret123")
@@ -1393,6 +1527,39 @@ class ErpDomainTests(TestCase):
         payment = ProviderPayment.objects.get(business=self.business)
         self.assertEqual(payment.amount, Decimal("399.00"))
         self.assertTrue(AuditLog.objects.filter(action="provider.payment_created", object_id=str(payment.id)).exists())
+
+    def test_provider_business_detail_can_reset_user_password_temporarily(self):
+        provider = User.objects.create_superuser(username="dueno", password="secret123")
+        target_user = User.objects.create_user(username="global-reset", password="secret123")
+        membership = BusinessMembership.objects.create(
+            business=self.business,
+            user=target_user,
+            role=BusinessMembership.Role.CASHIER,
+            can_access_pos=True,
+        )
+        client = Client()
+        self.assertTrue(client.login(username="dueno", password="secret123"))
+
+        response = client.post(
+            reverse("provider_business_detail", args=[self.business.id]),
+            {
+                "action": "reset_password",
+                "membership_id": str(membership.id),
+                f"reset-{membership.id}-temporary_password": "temporal987",
+            },
+            follow=True,
+        )
+
+        target_user.refresh_from_db()
+        self.assertContains(response, "Se asignó una contraseña temporal a global-reset.")
+        self.assertTrue(target_user.password_security.must_change_password)
+        self.assertFalse(Client().login(username="global-reset", password="secret123"))
+
+        temp_client = Client()
+        self.assertTrue(temp_client.login(username="global-reset", password="temporal987"))
+        redirected = temp_client.get(reverse("dashboard"), follow=True)
+        self.assertContains(redirected, "Cambiar contraseña")
+        self.assertTrue(AuditLog.objects.filter(action="provider.user_password_reset_by_manager", business=self.business).exists())
 
     def test_provider_business_detail_cannot_edit_owner_membership(self):
         provider = User.objects.create_superuser(username="dueno", password="secret123")

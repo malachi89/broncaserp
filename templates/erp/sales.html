@@ -82,6 +82,8 @@
       {% empty %}
         {% if has_filters %}
           <tr><td colspan="7">Sin resultados con los filtros seleccionados.</td></tr>
+        {% else %}
+          <tr><td colspan="7">Escribe una búsqueda para ver ventas.</td></tr>
         {% endif %}
       {% endfor %}
       </tbody>

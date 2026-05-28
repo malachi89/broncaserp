@@ -16,13 +16,19 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <a class="brand" href="{% if request.user.is_superuser %}{% url 'provider_dashboard' %}{% elif current_membership %}{% url current_membership.preferred_landing_url_name %}{% else %}{% url 'dashboard' %}{% endif %}">
-          <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
-          <span>
-            <strong>El Broncas</strong>
-            <small>ERP</small>
-          </span>
-        </a>
+        {% if request.user.is_superuser %}
+          <a class="brand" href="{% url 'provider_dashboard' %}">
+            <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
+            <span>
+              <strong>El Broncas</strong>
+              <small>ERP</small>
+            </span>
+          </a>
+        {% else %}
+          <div class="sidebar-header-title">
+            <strong>{% if current_business %}{{ current_business.name }}{% else %}Acceso{% endif %}</strong>
+          </div>
+        {% endif %}
         <button type="button" class="icon-button sidebar-toggle" id="sidebar-toggle" aria-label="Ocultar panel" aria-expanded="true">☰</button>
       </div>
 
@@ -31,7 +37,6 @@
           <nav class="nav">
             <a href="{% url 'provider_dashboard' %}">Administración</a>
             <a href="{% url 'provider_businesses' %}">Clientes</a>
-            <a href="/admin/">Django Admin</a>
           </nav>
         {% else %}
           <nav class="nav">
@@ -46,6 +51,15 @@
           </nav>
         {% endif %}
         <div class="sidebar-footer">
+          {% if not request.user.is_superuser %}
+            <a class="brand brand-footer" href="{% if current_membership %}{% url current_membership.preferred_landing_url_name %}{% else %}{% url 'dashboard' %}{% endif %}">
+              <img class="brand-mark" src="{% static 'icons/broncas-logo.png' %}?v=20260523-logo" alt="" aria-hidden="true">
+              <span>
+                <strong>El Broncas</strong>
+                <small>ERP</small>
+              </span>
+            </a>
+          {% endif %}
           <form method="post" action="{% url 'logout' %}" class="sidebar-logout-form">
             {% csrf_token %}
             <button class="sidebar-logout-button" type="submit" title="Cerrar sesión" aria-label="Cerrar sesión">
@@ -60,8 +74,13 @@
       <header class="topbar">
         <div class="topbar-title">
           <div>
-            <p class="eyebrow">{% if current_business %}{{ current_business.name }}{% elif request.user.is_superuser %}Administración{% else %}Acceso{% endif %}</p>
-            <h1>{% block page_title %}El Broncas ERP{% endblock %}</h1>
+            {% if request.user.is_superuser %}
+              <p class="eyebrow">Administración</p>
+              <h1>El Broncas ERP</h1>
+            {% else %}
+              <p class="eyebrow">{% block page_title %}Acceso{% endblock %}</p>
+              <h1>{% if current_business %}{{ current_business.name }}{% else %}Acceso{% endif %}</h1>
+            {% endif %}
           </div>
         </div>
       </header>

@@ -54,6 +54,8 @@
           {% empty %}
             {% if query %}
               <tr><td colspan="5">Sin clientes con crédito.</td></tr>
+            {% else %}
+              <tr><td colspan="5">Escribe una búsqueda para ver clientes con crédito.</td></tr>
             {% endif %}
           {% endfor %}
         </tbody>

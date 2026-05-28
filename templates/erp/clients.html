@@ -61,6 +61,8 @@
               <tr><td colspan="6">Sin resultados para "{{ query }}".</td></tr>
             {% elif editing_customer %}
               <tr><td colspan="6">Mostrando solo el cliente en edición.</td></tr>
+            {% else %}
+              <tr><td colspan="6">Escribe una búsqueda para ver clientes.</td></tr>
             {% endif %}
           {% endfor %}
         </tbody>
